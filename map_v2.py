@@ -29,6 +29,8 @@ def get_platform_map():
             continue
         if category != "APP":
             continue
+        if bu != "shopee":
+            continue
 
         if platform not in ret:
             ret[platform] = {}
