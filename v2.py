@@ -8,9 +8,10 @@ import re
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
 BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
-#BASE_SHEET_ID = '1ZWjzJSW1q0qm6ZABAhHpcOPOUE97cW8m901VL58A5Pk'
+# BASE_SHEET_ID = '1ZWjzJSW1q0qm6ZABAhHpcOPOUE97cW8m901VL58A5Pk'
 PLH_FOLDER_ID = '1PXuqqgbQwbZQ1IYOn-p-5lsXGBTXDzmm'
-MAP_SHEET_ID = '1V3SVl7pF2BD6t4oh-Eu9EaQRCYdrSXQuGmhPeCraUWA'
+# MAP_SHEET_ID = '1V3SVl7pF2BD6t4oh-Eu9EaQRCYdrSXQuGmhPeCraUWA'
+MAP_SHEET_ID = '1EnpZ8U-MAC-jGsE_KG-RFhuRFJqeGuCE0YCNPoXTsq0'
 
 SPECIAL_PLH_PATH = {
     "paidads": "Ads",
@@ -328,6 +329,21 @@ def write_to_plh_files(l1_info, overwrite=None):
                 },
             }}
         )
+        merge_req.append({
+            'repeatCell': {
+                'range': {
+                    'sheetId': sheetId,
+                    'startRowIndex': 0,
+                    'startColumnIndex': 0,
+                },
+                'cell': {
+                    'userEnteredFormat': {
+                        'horizontalAlignment': 'RIGHT',
+                    },
+                },
+                'fields': 'userEnteredFormat(horizontalAlignment)'
+            }
+        })
         merge_req.append(spreadsheet.get_full_border(
             sheetId, 0, row_cnt[i], 0, col_cnt[i])
         )
@@ -349,13 +365,14 @@ def build_link_map():
 
 def update_link_in_map_file(links, plh, lnk):
     assert plh in links
-    cell = "F" + str(links[plh][0]+3)
+    cell = "E" + str(links[plh][0]+3)
     spreadsheet.update_cell_value(
         MAP_SHEET_ID,
         "Sheet1",
         cell,
         {"values": [[lnk]]},
     )
+
 
 def extract_doc_id_from_url(url):
     regex_pattern = r"/d/([a-zA-Z0-9-_]+)"
@@ -371,15 +388,17 @@ if __name__ == "__main__":
     m = build_PLH_platform_usage_map()
     links = build_link_map()
 
-    #for _, plh_info in m.items():
+    # for _, plh_info in m.items():
     #    ret = write_to_plh_files(plh_info)
     #    update_link_in_map_file(links, plh_info["product_line"], ret["spreadsheetUrl"])
     for _, plh_info in m.items():
-        ret = write_to_plh_files(plh_info, extract_doc_id_from_url(links[plh_info["product_line"]][2]))
-        update_link_in_map_file(links, plh_info["product_line"], ret["spreadsheetUrl"])
+        ret = write_to_plh_files(plh_info, extract_doc_id_from_url(
+            links[plh_info["product_line"]][2]))
+        update_link_in_map_file(
+            links, plh_info["product_line"], ret["spreadsheetUrl"])
 
-    #ret = write_to_plh_files(m["Recommendation"])
-    #update_link_in_map_file(links, "Recommendation", ret["spreadsheetUrl"])
+    # ret = write_to_plh_files(m["Recommendation"])
+    # update_link_in_map_file(links, "Recommendation", ret["spreadsheetUrl"])
     # '1k6AwhOI4CAEJjg_rTIoh4OKZOivKEPn7jeskmW3mCew')
 
     # write_to_plh_files(m["MPI&D"])
