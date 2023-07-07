@@ -7,9 +7,11 @@ HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(r
 # PLH_FOLDER_ID = '1WkCP9Gl3IAunbqpNMOFluH6Nnz_MAfZW'
 # PLH_FOLDER_ID = '1nagGqJQfdYV4Mgb0vUKj4bf-29mE68RR'
 # PLH_FOLDER_ID = '1bO-hH5_dxY1Tdick7BsIAaEaw6rZs7zA'
-PLH_FOLDER_ID = '1391PhT7Y9VX3bJxLRJen3Qz9iJ9TALAa'
+# PLH_FOLDER_ID = '1391PhT7Y9VX3bJxLRJen3Qz9iJ9TALAa'
 # BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
-BASE_SHEET_ID = '1vnIYSguDfd4skdQtl1_ZILuK46xFwGZMf-V49oQQAPc'
+# BASE_SHEET_ID = '1vnIYSguDfd4skdQtl1_ZILuK46xFwGZMf-V49oQQAPc'
+BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
+PLH_FOLDER_ID = '1PXuqqgbQwbZQ1IYOn-p-5lsXGBTXDzmm'
 
 
 def build_PLH_platform_usage_map():
@@ -84,50 +86,33 @@ def build_PLH_platform_usage_map():
     return m
 
 
-def get_header_for_sheet():
+def get_header_for_sheet(mons):
     color = 'EE4D2D'
     white = 'FFFFFF'
+
+    l1_headers = []
+    l2_headers = []
+    for mon in mons:
+        l1_headers.append(
+            spreadsheet.get_cell_value("", white, color),
+            spreadsheet.get_cell_value("", white, color),
+            spreadsheet.get_cell_value(mon, white, color),
+        )
+        l2_headers.append(
+            spreadsheet.get_cell_value(
+                "Platform", white, color),
+            spreadsheet.get_cell_value(
+                "Indicator", white, color),
+            spreadsheet.get_cell_value(
+                "Quota", white, color),
+        )
+
     return [
         {
-            "values": [
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("April", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("March", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("Feb", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-            ],
+            "values": l1_headers,
         },
         {
-            "values": [
-                spreadsheet.get_cell_value(
-                    "Platform", white, color),
-                spreadsheet.get_cell_value(
-                    "Indicator", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Avg Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Peak Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Avg Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Peak Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Avg Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Peak Usage (Monthly)", white, color),
-            ]
+            "values": l2_headers
         }
     ]
 
@@ -140,9 +125,10 @@ def write_to_plh_files(l1_name, l1_info):
         "sheets": [
         ],
     }
+    mons = ["May", "April", "March", "Feb"]
 
     for l2_name, l2_info in l1_info.items():
-        rows_data = get_header_for_sheet()
+        rows_data = get_header_for_sheet(mons)
         for platform, row in l2_info.items():
             row_data = []
             row_data.append(spreadsheet.get_cell_value(platform))
@@ -179,9 +165,8 @@ def write_to_plh_files(l1_name, l1_info):
     # merge all sheet
     for sheet in ret["sheets"]:
         sheetId = sheet["properties"]["sheetId"]
-        merge_req.append(spreadsheet.get_merge_cells_cmd(sheetId, 0, 1, 2, 5))
-        merge_req.append(spreadsheet.get_merge_cells_cmd(sheetId, 0, 1, 5, 8))
-        merge_req.append(spreadsheet.get_merge_cells_cmd(sheetId, 0, 1, 8, 11))
+        for i, _ in enumerate(mons):
+            merge_req.append(spreadsheet.get_merge_cells_cmd(sheetId, 0, 1, i*3+2, i*3+5))
         merge_req.append(
             {
                 "addConditionalFormatRule": {
@@ -198,6 +183,6 @@ def write_to_plh_files(l1_name, l1_info):
 
 if __name__ == "__main__":
     m = build_PLH_platform_usage_map()
-    #for plh, plh_info in m.items():
+    # for plh, plh_info in m.items():
     #    write_to_plh_files(plh, plh_info)
     write_to_plh_files("marketplace", m["marketplace"])

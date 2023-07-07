@@ -20,8 +20,7 @@ def get_platform_map():
     rows = spreadsheet.get_one_sheet_content(SHEET_ID, title)
     for row in rows[1:]:
         try:
-            date, bu, platform, region, idc, server_config, qty, category, location, BU = row[
-                :10]
+            date, bu, platform, region, idc, server_config, qty, category, location, BU = row[:10]
         except ValueError:
             print("hahaha, " + str(row))
             exit(0)
@@ -29,7 +28,7 @@ def get_platform_map():
             continue
         if category != "APP":
             continue
-        if bu != "shopee":
+        if bu != "seamoney":
             continue
 
         if platform not in ret:
@@ -44,7 +43,7 @@ def get_platform_map():
 def write_to_final_files(r):
     body = {
         "properties": {
-            "title": "For HX",
+            "title": "For HX / SeaMoney",
         },
         "sheets": [
 

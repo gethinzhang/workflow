@@ -7,12 +7,15 @@ HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(r
 # PLH_FOLDER_ID = '1WkCP9Gl3IAunbqpNMOFluH6Nnz_MAfZW'
 # PLH_FOLDER_ID = '1nagGqJQfdYV4Mgb0vUKj4bf-29mE68RR'
 # PLH_FOLDER_ID = '1bO-hH5_dxY1Tdick7BsIAaEaw6rZs7zA'
-PLH_FOLDER_ID = '1391PhT7Y9VX3bJxLRJen3Qz9iJ9TALAa'
+# PLH_FOLDER_ID = '1391PhT7Y9VX3bJxLRJen3Qz9iJ9TALAa'
 # BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
-BASE_SHEET_ID = '1vnIYSguDfd4skdQtl1_ZILuK46xFwGZMf-V49oQQAPc'
+# BASE_SHEET_ID = '1vnIYSguDfd4skdQtl1_ZILuK46xFwGZMf-V49oQQAPc'
+# BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
+BASE_SHEET_ID = '1ZWjzJSW1q0qm6ZABAhHpcOPOUE97cW8m901VL58A5Pk'
+PLH_FOLDER_ID = '1PXuqqgbQwbZQ1IYOn-p-5lsXGBTXDzmm'
 
 SPECIAL_PLH_PATH = {
-    "marketplace.listing": "Listing", 
+    "marketplace.listing": "Listing",
     "marketplace.order": "Order",
     "marketplace.promotion": "Promotion",
     "marketplace.user": "User",
@@ -66,6 +69,7 @@ IGNORE_SET = set([
     "shopeepay",
     "fin_products",
     "kyc",
+    "bank",
 ])
 
 
@@ -79,7 +83,7 @@ def build_PLH_platform_usage_map():
             l2 : {
                 L2_PLH: {
                     origin_path: {
-                    
+
                     },
                     platforms: {
                         PLATFORM: {
@@ -105,6 +109,8 @@ def build_PLH_platform_usage_map():
         platform = properties.get("title")
         if properties.get("hidden") is True:
             continue
+        if platform in ["tmp", "tmpp"]:
+            continue
 
         rowMeta = data[0]["rowMetadata"]
         colMeta = data[0]["columnMetadata"]
@@ -125,10 +131,6 @@ def build_PLH_platform_usage_map():
                 else:
                     v_row.append(c)
 
-            if len(v_row) != 11:
-                raise Exception(
-                    F"unexpected line in {platform}\nrow {j}\nrow_content {row}\nfilter_info: {rowMeta[j]}\nv_row: {v_row}")
-
             product_line = v_row[0]
             if "." in product_line:
                 l1, l2 = product_line.split(".")
@@ -137,8 +139,11 @@ def build_PLH_platform_usage_map():
                 l2 = product_line
             if l1 in IGNORE_SET:
                 continue
+            if len(v_row) != 14:
+                raise Exception(
+                    F"unexpected line in {platform}\nrow {j}\nrow_content {row}\nfilter_info: {rowMeta[j]}\nv_row({len(v_row)}): {v_row}")
 
-            assert l1 in SPECIAL_PLH_PATH or product_line in SPECIAL_PLH_PATH, F"no exisits {product_line}"
+            assert l1 in SPECIAL_PLH_PATH or product_line in SPECIAL_PLH_PATH, F"{platform} no exisits {product_line}"
             if product_line in SPECIAL_PLH_PATH:
                 product_line_name = SPECIAL_PLH_PATH[product_line]
             else:
@@ -167,61 +172,40 @@ def build_PLH_platform_usage_map():
     return m
 
 
-def get_header_for_sheet(l2_name):
+def get_header_for_sheet(l2_name, mons):
     color = 'EE4D2D'
     white = 'FFFFFF'
     black = '000000'
+    # header_1 = spreadsheet.get_cell_value(l2_name, black, white),
+    header_2 = []
+    header_3 = [
+        spreadsheet.get_cell_value("Platform", white, color),
+        spreadsheet.get_cell_value("Indicator", white, color),
+    ]
+
+    for mon in mons:
+        header_2.extend([
+            spreadsheet.get_cell_value("", white, color),
+            spreadsheet.get_cell_value("", white, color),
+            spreadsheet.get_cell_value(mon, white, color),
+        ])
+        header_3.extend([
+            spreadsheet.get_cell_value(
+                "Quota", white, color),
+            spreadsheet.get_cell_value(
+                "Quota Avg Usage (Monthly)", white, color),
+            spreadsheet.get_cell_value(
+                "Quota Peak Usage (Monthly)", white, color),
+        ])
+
     return [
-        {
-            "values": [
-                spreadsheet.get_cell_value(l2_name, black, white),
-            ]
-        },
-        {
-            "values": [
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("April", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("March", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("Feb", white, color),
-                spreadsheet.get_cell_value("", white, color),
-                spreadsheet.get_cell_value("", white, color),
-            ],
-        },
-        {
-            "values": [
-                spreadsheet.get_cell_value(
-                    "Platform", white, color),
-                spreadsheet.get_cell_value(
-                    "Indicator", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Avg Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Peak Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Avg Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Peak Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Avg Usage (Monthly)", white, color),
-                spreadsheet.get_cell_value(
-                    "Quota Peak Usage (Monthly)", white, color),
-            ]
-        }
+        # {"values": header_1},
+        {"values": header_2},
+        {"values": header_3},
     ]
 
 
-def write_to_plh_files(l1_info):
+def write_to_plh_files(l1_info, overwrite=None):
     body = {
         "properties": {
             "title": F"APP Platform Quota Usage & Billing - {l1_info['product_line']}",
@@ -229,19 +213,19 @@ def write_to_plh_files(l1_info):
         "sheets": [
         ],
     }
-    head_rows = []
+    mons = ["May", "April", "March", "Feb"]
+    row_cnt = []
+    col_cnt = []
 
-    whole_data = []
-    for _, l2_info in l1_info["l2"].items():
-        rows_data = get_header_for_sheet(l2_info["path"])
-        # which line need merge header for months
-        head_rows.append(len(whole_data))
+    for l2_name, l2_info in l1_info["l2"].items():
+        rows_data = get_header_for_sheet(l2_info["path"], mons)
         for platform, row in l2_info["platforms"].items():
             row_data = []
             row_data.append(spreadsheet.get_cell_value(platform))
             row_data.append(spreadsheet.get_cell_value(row["indicator_name"]))
             for col in row["data"]:
-                if col[-1] == '%':
+                # assert len(col) > 0, F"{l2_name} in {platform} is empty"
+                if len(col) > 0 and col[-1] == '%':
                     row_data.append(
                         spreadsheet.get_cell_value(float(col[:-1])/100.0,
                                                    try_use_number=True,
@@ -253,45 +237,55 @@ def write_to_plh_files(l1_info):
                     row_data.append(spreadsheet.get_cell_value(col))
 
             rows_data.append({"values": row_data})
+        col_cnt.append(len(rows_data[-1]["values"]))
+        row_cnt.append(len(rows_data))
 
-        rows_data.append({})  # empty row
-        whole_data.extend(rows_data)
-
-    body["sheets"].append(
-        {
-            "properties": {
-                "title": F"{l1_info['product_line']}'s Bills",
+        body["sheets"].append(
+            {
+                "properties": {
+                    "title": F"L2 - {l2_name}",
+                },
+                "data": {
+                    "rowData": rows_data
+                },
             },
-            "data": {
-                "rowData": whole_data
-            },
-        },
-    )
+        )
 
-    ret = spreadsheet.create_spreadsheet_file(body)
-    doc_id = ret["spreadsheetId"]
+    if overwrite is None:
+        ret = spreadsheet.create_spreadsheet_file(body)
+        doc_id = ret["spreadsheetId"]
+    else:
+        spreadsheet.batch_update(overwrite, body)
+        
 
     merge_req = []
     # merge all sheet
-    for sheet in ret["sheets"]:
+    for i, sheet in enumerate(ret["sheets"]):
         sheetId = sheet["properties"]["sheetId"]
-        for head_row in head_rows:
+        for j, _ in enumerate(mons):
             merge_req.append(spreadsheet.get_merge_cells_cmd(
-                sheetId, head_row, head_row+1, 0, 3))  # merge name line
-            merge_req.append(spreadsheet.get_merge_cells_cmd(
-                sheetId, head_row+1, head_row+2, 2, 5))
-            merge_req.append(spreadsheet.get_merge_cells_cmd(
-                sheetId, head_row+1, head_row+2, 5, 8))
-            merge_req.append(spreadsheet.get_merge_cells_cmd(
-                sheetId, head_row+1, head_row+2, 8, 11))
-            merge_req.append(
-                {
-                    "addConditionalFormatRule": {
-                        "rule": spreadsheet.get_ge_rule(sheetId, "100%"),
-                        "index": 0,
-                    },
-                }
-            )
+                sheetId, 0, 1, j*3+2, j*3+5))  # merge name line
+
+        merge_req.append(
+            {
+                "addConditionalFormatRule": {
+                    "rule": spreadsheet.get_ge_rule(sheetId, "100%"),
+                    "index": 0,
+                },
+            }
+        )
+
+        merge_req.append({
+            'autoResizeDimensions': {
+                'dimensions': {
+                    'sheetId': sheetId,
+                    'dimension': 'COLUMNS',
+                },
+            }}
+        )
+        merge_req.append(spreadsheet.get_full_border(
+            sheetId, 0, row_cnt[i], 0, col_cnt[i])
+        )
 
     spreadsheet.batch_update(doc_id, merge_req)
     drive.move_doc_to_folder(ret["spreadsheetId"], PLH_FOLDER_ID)
@@ -302,6 +296,6 @@ if __name__ == "__main__":
     m = build_PLH_platform_usage_map()
     for _, plh_info in m.items():
         write_to_plh_files(plh_info)
-    #write_to_plh_files(m["Recommendation"])
+#    write_to_plh_files(m["Recommendation"])
 
-    #write_to_plh_files(m["MPI&D"])
+    # write_to_plh_files(m["MPI&D"])

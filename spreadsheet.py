@@ -124,3 +124,70 @@ def get_ge_rule(sheetId, threshold,
             }
         }
     }
+
+
+def get_full_border(sheetId, rowStart, rowEnd, colStart, colEnd):
+    return {
+        'updateBorders': {
+            'range': {
+                'sheetId': sheetId,
+                'startRowIndex': rowStart,
+                'endRowIndex': rowEnd,
+                'startColumnIndex': colStart,
+                'endColumnIndex': colEnd,
+            },
+            'innerHorizontal': {
+                'style': 'SOLID',
+                'width': 1,
+                'color': {
+                    'red': 0.0,
+                    'green': 0.0,
+                    'blue': 0.0
+                }
+            },
+            'innerVertical': {
+                'style': 'SOLID',
+                'width': 1,
+                'color': {
+                    'red': 0.0,
+                    'green': 0.0,
+                    'blue': 0.0
+                }
+            },
+            'top': {
+                'style': 'SOLID',
+                'width': 1,
+                'color': {
+                    'red': 0.0,
+                    'green': 0.0,
+                    'blue': 0.0
+                }
+            },
+            'bottom': {
+                'style': 'SOLID',
+                'width': 1,
+                'color': {
+                    'red': 0.0,
+                    'green': 0.0,
+                    'blue': 0.0
+                }
+            },
+            'left': {
+                'style': 'SOLID',
+                'width': 1,
+                'color': {
+                    'red': 0.0,
+                    'green': 0.0,
+                    'blue': 0.0
+                }
+            },
+            'right': {
+                'style': 'SOLID',
+                'width': 1,
+                'color': {
+                    'red': 0.0,
+                    'green': 0.0,
+                    'blue': 0.0
+                }
+            }
+        }}
