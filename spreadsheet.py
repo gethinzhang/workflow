@@ -36,6 +36,39 @@ def create_spreadsheet_file(body):
     ).execute()
 
 
+def delete_spreadsheet_sheets(doc_id):
+    service = get_spreadsheet_service()
+
+    ret = get_spreadsheet_meta(doc_id)
+    sheet_ids = [sheet['properties']['sheetId'] for sheet in ret['sheets']]
+    # Prepare the request to remove all sheets
+    requests = []
+    for sheet_id in sheet_ids:
+        requests.append({
+            'deleteSheet': {
+                'sheetId': sheet_id
+            }
+        })
+
+    return batch_update(doc_id, requests)
+
+
+def update_cell_value(doc_id, sheetName, range, value):
+    service = get_spreadsheet_service()
+    service.spreadsheets().values().update(
+        spreadsheetId=doc_id, range=sheetName + '!' + range,
+        valueInputOption='RAW', body=value
+    ).execute()
+
+
+def clear_sheet(doc_id, sheetId):
+    service = get_spreadsheet_service()
+    return service.spreadsheets().values().clear(
+        spreadsheetId=doc_id,
+        range=sheetId,
+    )
+
+
 def batch_update(doc_id, req):
     service = get_spreadsheet_service()
     return service.spreadsheets().batchUpdate(
