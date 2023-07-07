@@ -8,8 +8,10 @@ import re
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
 BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
-PLH_FOLDER_ID = '1PXuqqgbQwbZQ1IYOn-p-5lsXGBTXDzmm'
-MAP_SHEET_ID = '1EnpZ8U-MAC-jGsE_KG-RFhuRFJqeGuCE0YCNPoXTsq0'
+#PLH_FOLDER_ID = '1PXuqqgbQwbZQ1IYOn-p-5lsXGBTXDzmm'
+#MAP_SHEET_ID = '1EnpZ8U-MAC-jGsE_KG-RFhuRFJqeGuCE0YCNPoXTsq0'
+PLH_FOLDER_ID = '1SKPMYzoXz52dj6VdUocKl90wwp7AfiYS'
+MAP_SHEET_ID = '1V3SVl7pF2BD6t4oh-Eu9EaQRCYdrSXQuGmhPeCraUWA'
 
 SPECIAL_PLH_PATH = {
     "paidads": "Ads",
@@ -356,8 +358,9 @@ def build_link_map():
     ret = {}
     rows = spreadsheet.get_one_sheet_content(MAP_SHEET_ID, "Sheet1")
     for i, row in enumerate(rows[2:]):
+        print(row)
         division, l0, l1, mapping, cpo_link, new_link = row[:]
-        ret[l1] = (i, link_1, new_link, cpo_link)
+        ret[l1] = (i, new_link, cpo_link)
     return ret
 
 
@@ -391,7 +394,7 @@ if __name__ == "__main__":
     #    update_link_in_map_file(links, plh_info["product_line"], ret["spreadsheetUrl"])
     for _, plh_info in m.items():
         ret = write_to_plh_files(plh_info, extract_doc_id_from_url(
-            links[plh_info["product_line"]][2]))
+            links[plh_info["product_line"]][1]))
         update_link_in_map_file(
             links, plh_info["product_line"], ret["spreadsheetUrl"])
 
