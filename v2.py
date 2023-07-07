@@ -8,9 +8,7 @@ import re
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
 BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
-# BASE_SHEET_ID = '1ZWjzJSW1q0qm6ZABAhHpcOPOUE97cW8m901VL58A5Pk'
 PLH_FOLDER_ID = '1PXuqqgbQwbZQ1IYOn-p-5lsXGBTXDzmm'
-# MAP_SHEET_ID = '1V3SVl7pF2BD6t4oh-Eu9EaQRCYdrSXQuGmhPeCraUWA'
 MAP_SHEET_ID = '1EnpZ8U-MAC-jGsE_KG-RFhuRFJqeGuCE0YCNPoXTsq0'
 
 SPECIAL_PLH_PATH = {
