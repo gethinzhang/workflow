@@ -356,7 +356,7 @@ def build_link_map():
     ret = {}
     rows = spreadsheet.get_one_sheet_content(MAP_SHEET_ID, "Sheet1")
     for i, row in enumerate(rows[2:]):
-        division, l0, l1, mapping, link_1, new_link, cpo_link = row[:]
+        division, l0, l1, mapping, cpo_link, new_link = row[:]
         ret[l1] = (i, link_1, new_link, cpo_link)
     return ret
 
