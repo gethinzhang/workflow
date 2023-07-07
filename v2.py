@@ -375,7 +375,8 @@ if __name__ == "__main__":
     #    ret = write_to_plh_files(plh_info)
     #    update_link_in_map_file(links, plh_info["product_line"], ret["spreadsheetUrl"])
     for _, plh_info in m.items():
-        write_to_plh_files(plh_info, extract_doc_id_from_url(links[plh_info["product_line"]][2]))
+        ret = write_to_plh_files(plh_info, extract_doc_id_from_url(links[plh_info["product_line"]][2]))
+        update_link_in_map_file(links, plh_info["product_line"], ret["spreadsheetUrl"])
 
     #ret = write_to_plh_files(m["Recommendation"])
     #update_link_in_map_file(links, "Recommendation", ret["spreadsheetUrl"])
