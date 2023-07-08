@@ -442,7 +442,7 @@ def update_cpo_office_link(doc_id, l1_info):
     merge_req = compose_l2_formats(sheetId)
     for i in range(0, len(header_rows)-1):
         merge_req.append(spreadsheet.get_full_border(
-            sheetId, header_rows[i]+1, header_rows[i+1], 0, col_len)
+            sheetId, header_rows[i]+1, header_rows[i+1]-1, 0, col_len)
         )
 
         for j in range(0, len(MONS)):
@@ -454,12 +454,16 @@ def update_cpo_office_link(doc_id, l1_info):
 
 
 if __name__ == "__main__":
+    #import sys
+    #if len(sys.argv) != 2:
+    #    print("please use python3 v2.py product_line|all ")
+    #    exit(-1)
+
     m = build_PLH_platform_usage_map()
     links = build_link_map()
 
     for _, plh_info in m.items():
-        if plh_info["product_line"] != "Recommendation":
-            continue
+        #if plh_info["product_line"] != "Recommendation":
 
         ret = write_to_plh_files(plh_info, extract_doc_id_from_url(
             links[plh_info["product_line"]][1]))
