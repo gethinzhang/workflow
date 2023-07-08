@@ -159,6 +159,32 @@ def get_ge_rule(sheetId, threshold,
     }
 
 
+def get_ho_align(sheetId, align, startRow=None, endRow=None, startColumn=None, endColumn=None):
+    range = {
+        "sheetId": sheetId,
+    }
+    if startRow:
+        range["startRowIndex"] = startRow
+    if endRow:
+        range["endRowIndex"] = endRow
+    if startColumn:
+        range["startColumnIndex"] = startColumn
+    if endColumn:
+        range["endColumnIndex"] = endColumn
+
+    return {
+        'repeatCell': {
+            'range': range,
+            'cell': {
+                'userEnteredFormat': {
+                    'horizontalAlignment': align,
+                },
+            },
+            'fields': 'userEnteredFormat(horizontalAlignment)'
+        }
+    }
+
+
 def get_full_border(sheetId, rowStart, rowEnd, colStart, colEnd):
     return {
         'updateBorders': {

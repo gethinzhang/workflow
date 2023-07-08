@@ -3,15 +3,17 @@ from drive import create_file_in_folder, GOOGLE_SHEET_MIME
 import spreadsheet
 import drive
 import itertools
-import pprint
 import re
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
 BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
-#PLH_FOLDER_ID = '1PXuqqgbQwbZQ1IYOn-p-5lsXGBTXDzmm'
-#MAP_SHEET_ID = '1EnpZ8U-MAC-jGsE_KG-RFhuRFJqeGuCE0YCNPoXTsq0'
 PLH_FOLDER_ID = '1SKPMYzoXz52dj6VdUocKl90wwp7AfiYS'
 MAP_SHEET_ID = '1V3SVl7pF2BD6t4oh-Eu9EaQRCYdrSXQuGmhPeCraUWA'
+MAP_SHEET_COLUMN = 'F'
+MONS = ["May", "April", "March", "Feb"]
+
+WHITE_RGB = 'FFFFFF'
+BLACK_RGB = '000000'
 
 SPECIAL_PLH_PATH = {
     "paidads": "Ads",
@@ -181,30 +183,28 @@ def build_PLH_platform_usage_map():
     return m
 
 
-def get_header_for_sheet(l2_name, mons):
+def get_header_for_sheet():
     color = 'EE4D2D'
-    white = 'FFFFFF'
-    black = '000000'
-    # header_1 = spreadsheet.get_cell_value(l2_name, black, white),
+    # header_1 = spreadsheet.get_cell_value(l2_name, BLACK_RGB, white),
     header_2 = []
     header_3 = [
-        spreadsheet.get_cell_value("Platform", white, color),
-        spreadsheet.get_cell_value("Indicator", white, color),
+        spreadsheet.get_cell_value("Platform", WHITE_RGB, color),
+        spreadsheet.get_cell_value("Indicator", WHITE_RGB, color),
     ]
 
-    for mon in mons:
+    for mon in MONS:
         header_2.extend([
-            spreadsheet.get_cell_value("", white, color),
-            spreadsheet.get_cell_value("", white, color),
-            spreadsheet.get_cell_value(mon, white, color),
+            spreadsheet.get_cell_value("", WHITE_RGB, color),
+            spreadsheet.get_cell_value("", WHITE_RGB, color),
+            spreadsheet.get_cell_value(mon, WHITE_RGB, color),
         ])
         header_3.extend([
             spreadsheet.get_cell_value(
-                "Quota", white, color),
+                "Quota", WHITE_RGB, color),
             spreadsheet.get_cell_value(
-                "Quota Avg Usage (Monthly)", white, color),
+                "Quota Avg Usage (Monthly)", WHITE_RGB, color),
             spreadsheet.get_cell_value(
-                "Quota Peak Usage (Monthly)", white, color),
+                "Quota Peak Usage (Monthly)", WHITE_RGB, color),
         ])
 
     return [
@@ -212,6 +212,55 @@ def get_header_for_sheet(l2_name, mons):
         {"values": header_2},
         {"values": header_3},
     ]
+
+
+def compose_l2_cells(l2_info):
+    rows_data = get_header_for_sheet()
+    for platform, row in l2_info["platforms"].items():
+        row_data = []
+        row_data.append(spreadsheet.get_cell_value(platform))
+        row_data.append(spreadsheet.get_cell_value(row["indicator_name"]))
+        for col in row["data"]:
+            # assert len(col) > 0, F"{l2_name} in {platform} is empty"
+            if len(col) > 0 and col[-1] == '%':
+                row_data.append(
+                    spreadsheet.get_cell_value(float(col[:-1])/100.0,
+                                               try_use_number=True,
+                                               number_format={
+                        'type': 'PERCENT',
+                        'pattern': '#0.00%',
+                    }))
+            else:
+                row_data.append(spreadsheet.get_cell_value(col))
+
+        rows_data.append({"values": row_data})
+    return rows_data
+
+
+def compose_l2_formats(sheetId):
+    merge_req = []
+
+    merge_req.append(
+        {
+            "addConditionalFormatRule": {
+                "rule": spreadsheet.get_ge_rule(sheetId, "100%"),
+                "index": 0,
+            },
+        }
+    )
+
+    merge_req.append({
+        'autoResizeDimensions': {
+            'dimensions': {
+                'sheetId': sheetId,
+                'dimension': 'COLUMNS',
+            },
+        }}
+    )
+    merge_req.append(spreadsheet.get_ho_align(sheetId, "RIGHT", startColumn=2))
+    merge_req.append(spreadsheet.get_ho_align(
+        sheetId, "LEFT", startColumn=0, endColumn=1))
+    return merge_req
 
 
 def write_to_plh_files(l1_info, overwrite=None):
@@ -222,30 +271,13 @@ def write_to_plh_files(l1_info, overwrite=None):
         "sheets": [
         ],
     }
-    mons = ["May", "April", "March", "Feb"]
+
+    # used for record line pos to add full border
     row_cnt = []
     col_cnt = []
 
     for l2_name, l2_info in l1_info["l2"].items():
-        rows_data = get_header_for_sheet(l2_info["path"], mons)
-        for platform, row in l2_info["platforms"].items():
-            row_data = []
-            row_data.append(spreadsheet.get_cell_value(platform))
-            row_data.append(spreadsheet.get_cell_value(row["indicator_name"]))
-            for col in row["data"]:
-                # assert len(col) > 0, F"{l2_name} in {platform} is empty"
-                if len(col) > 0 and col[-1] == '%':
-                    row_data.append(
-                        spreadsheet.get_cell_value(float(col[:-1])/100.0,
-                                                   try_use_number=True,
-                                                   number_format={
-                            'type': 'PERCENT',
-                            'pattern': '#0.00%',
-                        }))
-                else:
-                    row_data.append(spreadsheet.get_cell_value(col))
-
-            rows_data.append({"values": row_data})
+        rows_data = compose_l2_cells(l2_info)
         col_cnt.append(len(rows_data[-1]["values"]))
         row_cnt.append(len(rows_data))
 
@@ -301,49 +333,17 @@ def write_to_plh_files(l1_info, overwrite=None):
             )
         ss_content = spreadsheet.get_spreadsheet_meta(overwrite)
 
-    merge_req = []
     sheets = ss_content["sheets"]
     doc_id = ss_content["spreadsheetId"]
 
     # merge all sheet
     for i, sheet in enumerate(sheets):
         sheetId = sheet["properties"]["sheetId"]
-        for j, _ in enumerate(mons):
+        merge_req = compose_l2_formats(sheetId)
+        merge_req.append(spreadsheet.get_ho_align(sheetId, "CENTER", 0, 1))
+        for j, _ in enumerate(MONS):
             merge_req.append(spreadsheet.get_merge_cells_cmd(
                 sheetId, 0, 1, j*3+2, j*3+5))  # merge name line
-
-        merge_req.append(
-            {
-                "addConditionalFormatRule": {
-                    "rule": spreadsheet.get_ge_rule(sheetId, "100%"),
-                    "index": 0,
-                },
-            }
-        )
-
-        merge_req.append({
-            'autoResizeDimensions': {
-                'dimensions': {
-                    'sheetId': sheetId,
-                    'dimension': 'COLUMNS',
-                },
-            }}
-        )
-        merge_req.append({
-            'repeatCell': {
-                'range': {
-                    'sheetId': sheetId,
-                    'startRowIndex': 0,
-                    'startColumnIndex': 0,
-                },
-                'cell': {
-                    'userEnteredFormat': {
-                        'horizontalAlignment': 'RIGHT',
-                    },
-                },
-                'fields': 'userEnteredFormat(horizontalAlignment)'
-            }
-        })
         merge_req.append(spreadsheet.get_full_border(
             sheetId, 0, row_cnt[i], 0, col_cnt[i])
         )
@@ -358,15 +358,19 @@ def build_link_map():
     ret = {}
     rows = spreadsheet.get_one_sheet_content(MAP_SHEET_ID, "Sheet1")
     for i, row in enumerate(rows[2:]):
-        print(row)
-        division, l0, l1, mapping, cpo_link, new_link = row[:]
+        if len(row) == 5:
+            new_link = ""
+        elif len(row) == 6:
+            new_link = row[5]
+        cpo_link = row[4]
+        l1 = row[2]
         ret[l1] = (i, new_link, cpo_link)
     return ret
 
 
 def update_link_in_map_file(links, plh, lnk):
     assert plh in links
-    cell = "E" + str(links[plh][0]+3)
+    cell = MAP_SHEET_COLUMN + str(links[plh][0]+3)
     spreadsheet.update_cell_value(
         MAP_SHEET_ID,
         "Sheet1",
@@ -385,21 +389,81 @@ def extract_doc_id_from_url(url):
         return None
 
 
+def update_cpo_office_link(doc_id, l1_info):
+    # get App sheet
+    ret = spreadsheet.get_spreadsheet_meta(doc_id)
+    sheetTitle = None
+    sheetId = None
+    for sheet in ret["sheets"]:
+        sheetTitle = sheet["properties"]["title"]
+        if sheetTitle.startswith("APP"):
+            assert sheetId is None
+            sheetId = sheet["properties"]["sheetId"]
+    assert sheetId is not None
+
+    header_rows = []
+    whole_data = []
+    col_len = 0
+
+    for _, l2_info in l1_info["l2"].items():
+        header_rows.append(len(whole_data))
+        rows_data = [{"values": [spreadsheet.get_cell_value(
+            l2_info["path"], BLACK_RGB, WHITE_RGB)]}]
+        rows_data.extend(compose_l2_cells(l2_info))
+        col_len = len(rows_data[-1]["values"])
+        rows_data.append({})  # empty row
+        whole_data.extend(rows_data)
+    header_rows.append(len(whole_data)-1)
+
+    spreadsheet.clear_sheet(doc_id, sheetId)
+    reqs = [
+        {
+            'updateSheetProperties': {
+                "properties": {
+                    "title": F"APP {MONS[0]} - Feb 23 (Quota)",
+                    "sheetId": sheetId,
+                },
+                'fields': 'title',
+            },
+        },
+        {
+            'updateCells': {
+                "range": {
+                    "sheetId": sheetId,
+                    "startRowIndex": 0,
+                    "startColumnIndex": 0,
+                },
+                "fields": "*",
+                "rows": whole_data,
+            }
+        }]
+    spreadsheet.batch_update(doc_id, reqs)
+
+    merge_req = compose_l2_formats(sheetId)
+    for i in range(0, len(header_rows)-1):
+        merge_req.append(spreadsheet.get_full_border(
+            sheetId, header_rows[i]+1, header_rows[i+1], 0, col_len)
+        )
+
+        for j in range(0, len(MONS)):
+            merge_req.append(spreadsheet.get_merge_cells_cmd(
+                sheetId, header_rows[i]+1, header_rows[i]+2, j*3+2, j*3+5))  # merge name line
+        merge_req.append(spreadsheet.get_ho_align(sheetId, "CENTER",
+                                                  startRow=header_rows[i]+1, endRow=header_rows[i]+2))
+    spreadsheet.batch_update(doc_id, merge_req)
+
+
 if __name__ == "__main__":
     m = build_PLH_platform_usage_map()
     links = build_link_map()
 
-    # for _, plh_info in m.items():
-    #    ret = write_to_plh_files(plh_info)
-    #    update_link_in_map_file(links, plh_info["product_line"], ret["spreadsheetUrl"])
     for _, plh_info in m.items():
+        if plh_info["product_line"] != "Recommendation":
+            continue
+
         ret = write_to_plh_files(plh_info, extract_doc_id_from_url(
             links[plh_info["product_line"]][1]))
         update_link_in_map_file(
             links, plh_info["product_line"], ret["spreadsheetUrl"])
-
-    # ret = write_to_plh_files(m["Recommendation"])
-    # update_link_in_map_file(links, "Recommendation", ret["spreadsheetUrl"])
-    # '1k6AwhOI4CAEJjg_rTIoh4OKZOivKEPn7jeskmW3mCew')
-
-    # write_to_plh_files(m["MPI&D"])
+        update_cpo_office_link(extract_doc_id_from_url(links[plh_info["product_line"]][2]),
+                               plh_info)
