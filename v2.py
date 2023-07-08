@@ -1,9 +1,9 @@
-
 from drive import create_file_in_folder, GOOGLE_SHEET_MIME
 import spreadsheet
 import drive
 import itertools
 import re
+import sys
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
 BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
@@ -399,7 +399,7 @@ def update_cpo_office_link(doc_id, l1_info):
         if sheetTitle.startswith("APP"):
             assert sheetId is None
             sheetId = sheet["properties"]["sheetId"]
-    assert sheetId is not None
+    assert sheetId is not None, F"Current ({doc_id}) Title is: {','.join([s['properties']['title'] for s in ret['sheets']])}"
 
     header_rows = []
     whole_data = []
@@ -411,8 +411,8 @@ def update_cpo_office_link(doc_id, l1_info):
             l2_info["path"], BLACK_RGB, WHITE_RGB)]}]
         rows_data.extend(compose_l2_cells(l2_info))
         col_len = len(rows_data[-1]["values"])
-        rows_data.append({})  # empty row
         whole_data.extend(rows_data)
+        rows_data.append({})  # empty row
     header_rows.append(len(whole_data)-1)
 
     spreadsheet.clear_sheet(doc_id, sheetId)
@@ -442,7 +442,7 @@ def update_cpo_office_link(doc_id, l1_info):
     merge_req = compose_l2_formats(sheetId)
     for i in range(0, len(header_rows)-1):
         merge_req.append(spreadsheet.get_full_border(
-            sheetId, header_rows[i]+1, header_rows[i+1]-1, 0, col_len)
+            sheetId, header_rows[i]+1, header_rows[i+1], 0, col_len)
         )
 
         for j in range(0, len(MONS)):
@@ -454,20 +454,23 @@ def update_cpo_office_link(doc_id, l1_info):
 
 
 if __name__ == "__main__":
-    #import sys
-    #if len(sys.argv) != 2:
-    #    print("please use python3 v2.py product_line|all ")
-    #    exit(-1)
-
     m = build_PLH_platform_usage_map()
     links = build_link_map()
+    if len(sys.argv) <= 1:
+        plh = 'all'
+        print("Default will generate all link")
+    else:
+        plh = sys.argv[1]
 
     for _, plh_info in m.items():
-        #if plh_info["product_line"] != "Recommendation":
+        if plh != 'all' and plh_info["path"] != plh:
+            continue 
 
-        ret = write_to_plh_files(plh_info, extract_doc_id_from_url(
-            links[plh_info["product_line"]][1]))
+        _, plh_link, cpo_office_link = links[plh_info["product_line"]]
+        ret = write_to_plh_files(plh_info, extract_doc_id_from_url(plh_link))
         update_link_in_map_file(
             links, plh_info["product_line"], ret["spreadsheetUrl"])
-        update_cpo_office_link(extract_doc_id_from_url(links[plh_info["product_line"]][2]),
+        update_cpo_office_link(extract_doc_id_from_url(cpo_office_link),
                                plh_info)
+
+        print(F"Generated product_line ({plh_info['product_line']}): Google Doc Link {plh_link}, CPO Office Link {cpo_office_link}")
