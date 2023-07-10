@@ -7,6 +7,7 @@ import sys
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
 BASE_SHEET_ID = '16dQ0NOB7GMS1H19LVeKr4RpE507oEcJ7RoneiR5_LsU'
+#BASE_SHEET_ID = '1iG7fE6xNtIy6KrjYKZfb7gPkdh6sfu1Xx-3_ZMz4McQ'
 PLH_FOLDER_ID = '1SKPMYzoXz52dj6VdUocKl90wwp7AfiYS'
 MAP_SHEET_ID = '1V3SVl7pF2BD6t4oh-Eu9EaQRCYdrSXQuGmhPeCraUWA'
 MAP_SHEET_COLUMN = 'F'
@@ -51,7 +52,7 @@ SPECIAL_PLH_PATH = {
     "foody_and_local_service_intelligence": "ShopeeFood Intelligence",
     "shopeevideo": "ShopeeVideo",
     "shopeevideo.shopeevideo_engineer": "ShopeeVideo",
-    "shopeevideo.multimedia_center": "ShopeeVideo",
+    "shopeevideo.multimedia_center": "Multimedia Center",
     "supply_chain.fulfilment": "SBS",
     "supply_chain.sbs": "SBS",
     "supply_chain.wms": "SBS",
@@ -64,6 +65,12 @@ SPECIAL_PLH_PATH = {
     "enterprise_efficiency": "SeaTalk / Internal Systems",
     "info_security": "Seamoney Security (Ziyi)",
 }
+
+SPLIT_MAP = {
+    "Customer Service": "Chatbot",
+    "Seamoney Security (Ziyi)": "Shopee Security (Patrick)"
+}
+
 IGNORE_SET = set([
     "ai_platform",
     "data_infrastructure",
@@ -214,7 +221,7 @@ def get_header_for_sheet():
     ]
 
 
-def compose_l2_cells(l2_info):
+def compose_l2_cells(l2_info, factor=1):
     rows_data = get_header_for_sheet()
     for platform, row in l2_info["platforms"].items():
         row_data = []
@@ -224,14 +231,18 @@ def compose_l2_cells(l2_info):
             # assert len(col) > 0, F"{l2_name} in {platform} is empty"
             if len(col) > 0 and col[-1] == '%':
                 row_data.append(
-                    spreadsheet.get_cell_value(float(col[:-1])/100.0,
+                    spreadsheet.get_cell_value(float(col[:-1])*factor/100.0,
                                                try_use_number=True,
                                                number_format={
                         'type': 'PERCENT',
                         'pattern': '#0.00%',
                     }))
             else:
-                row_data.append(spreadsheet.get_cell_value(col))
+                if col.isnumeric():
+                    row_data.append(
+                        spreadsheet.get_cell_value(str(float(col)*factor)))
+                else:
+                    row_data.append(spreadsheet.get_cell_value(col))
 
         rows_data.append({"values": row_data})
     return rows_data
@@ -380,6 +391,7 @@ def update_link_in_map_file(links, plh, lnk):
 
 
 def extract_doc_id_from_url(url):
+    print(url)
     regex_pattern = r"/d/([a-zA-Z0-9-_]+)"
     match = re.search(regex_pattern, url)
     if match:
@@ -389,7 +401,7 @@ def extract_doc_id_from_url(url):
         return None
 
 
-def update_cpo_office_link(doc_id, l1_info):
+def update_cpo_office_link(doc_id, l1_info, factor=1):
     # get App sheet
     ret = spreadsheet.get_spreadsheet_meta(doc_id)
     sheetTitle = None
@@ -409,7 +421,7 @@ def update_cpo_office_link(doc_id, l1_info):
         header_rows.append(len(whole_data))
         rows_data = [{"values": [spreadsheet.get_cell_value(
             l2_info["path"], BLACK_RGB, WHITE_RGB)]}]
-        rows_data.extend(compose_l2_cells(l2_info))
+        rows_data.extend(compose_l2_cells(l2_info, factor))
         col_len = len(rows_data[-1]["values"])
         rows_data.append({})  # empty row
         whole_data.extend(rows_data)
@@ -462,15 +474,23 @@ if __name__ == "__main__":
     else:
         plh = sys.argv[1]
 
-    for _, plh_info in m.items():
+    for plh_name, plh_info in m.items():
         if plh != 'all' and plh_info["path"] != plh:
-            continue 
+            continue
 
         _, plh_link, cpo_office_link = links[plh_info["product_line"]]
         ret = write_to_plh_files(plh_info, extract_doc_id_from_url(plh_link))
         update_link_in_map_file(
             links, plh_info["product_line"], ret["spreadsheetUrl"])
+        factor = 1
+        if plh_name in SPLIT_MAP:
+            factor = 0.5
+            update_cpo_office_link(extract_doc_id_from_url(links[SPLIT_MAP[plh_name]][2]),
+                                   plh_info, factor)
+            print(
+                F"Generated product_line ({SPLIT_MAP[plh_name]}): Google Doc Link {plh_link}, CPO Office Link {links[SPLIT_MAP[plh_name]][2]}")
         update_cpo_office_link(extract_doc_id_from_url(cpo_office_link),
-                               plh_info)
+                               plh_info, factor)
 
-        print(F"Generated product_line ({plh_info['product_line']}): Google Doc Link {plh_link}, CPO Office Link {cpo_office_link}")
+        print(
+            F"Generated product_line ({plh_info['product_line']}): Google Doc Link {plh_link}, CPO Office Link {cpo_office_link}")
