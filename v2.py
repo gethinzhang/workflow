@@ -411,9 +411,9 @@ def update_cpo_office_link(doc_id, l1_info):
             l2_info["path"], BLACK_RGB, WHITE_RGB)]}]
         rows_data.extend(compose_l2_cells(l2_info))
         col_len = len(rows_data[-1]["values"])
-        whole_data.extend(rows_data)
         rows_data.append({})  # empty row
-    header_rows.append(len(whole_data)-1)
+        whole_data.extend(rows_data)
+    header_rows.append(len(whole_data))
 
     spreadsheet.clear_sheet(doc_id, sheetId)
     reqs = [
@@ -442,7 +442,7 @@ def update_cpo_office_link(doc_id, l1_info):
     merge_req = compose_l2_formats(sheetId)
     for i in range(0, len(header_rows)-1):
         merge_req.append(spreadsheet.get_full_border(
-            sheetId, header_rows[i]+1, header_rows[i+1], 0, col_len)
+            sheetId, header_rows[i]+1, header_rows[i+1]-1, 0, col_len)
         )
 
         for j in range(0, len(MONS)):
