@@ -19,7 +19,7 @@ SPECIAL_PLH_PATH = {
     "paidads": "Ads",
     "search": "Search",
     "recommendation": "Recommendation",
-    "shopeevideo.shopeevideo_intelligence": "Engineering & Architecture",
+    "shopeevideo.shopeevideo_intelligence": "Data Intelligence",
     "marketplace.listing": "Listing",
     "marketplace.order": "Order",
     "marketplace.promotion": "Promotion",
@@ -164,7 +164,7 @@ def build_PLH_platform_usage_map():
 
             if product_line_name not in m:
                 m[product_line_name] = {
-                    "path": l1,
+                    "path": product_line,
                     "product_line": product_line_name,
                     "l2": {
                     }
