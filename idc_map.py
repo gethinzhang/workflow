@@ -3,8 +3,6 @@ import spreadsheet
 import drive
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
-#SHEET_ID = "135jcj-rVLrefimP0qyw6z9qEGVgjWz5peoTD42RMrtw"
-#SHEET_ID = "195QAPtdzsgyDDQrv-sxxA2OOBZuLdAEPBOvkRHRiLns"
 SHEET_ID = "1EoORLTqwmRR1gFPdm_R3dNhIj-XYsh6Gf5urYy_ZeCI"
 PLATS = set([
     "AZ",
