@@ -4,6 +4,7 @@ import drive
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
 SHEET_ID = "1Khf357_9ztSmi5Hsf2WJI6T-Q0rvhpRgJDp5Zxm6G24"
+FOLDER_ID = "1ZAX4F9Wgu1sjva8rRZFa3iJM9efecAuw"
 
 
 def get_platform_map():
@@ -29,8 +30,13 @@ def get_platform_map():
             continue
         if category != "APP":
             continue
-        if bu == "seamoney" or bu == "shopee":
-            bu_cate = bu
+        if idc == "DC West":
+            bu_cate = "Non-live"
+        elif bu == "seamoney" or bu == "shopee":
+            if location == "US":
+                bu_cate = f"{bu}/US"
+            else:
+                bu_cate = f"{bu}/SG+Others"
         else:
             continue
 
@@ -75,6 +81,7 @@ def write_to_final_files(r, bu_cate):
             }
         )
     ret = spreadsheet.create_spreadsheet_file(body)
+    drive.move_doc_to_folder(ret["spreadsheetId"], FOLDER_ID)
 
 
 if __name__ == "__main__":
