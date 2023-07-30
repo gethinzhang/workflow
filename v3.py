@@ -469,7 +469,7 @@ def get_pl_usage(platform_sheets):
                     "quota": float(quota),
                     "usage": float(usage),
                     "maxqu": max(float(quota), float(usage)),
-                    "percentage": 0,
+                    "percentage": 0, # always use percentage as x% * 1000 to avoid error
                 }
                 total_resource += ret[platform_name][product_line]["maxqu"]
             except ValueError as e:
@@ -477,8 +477,12 @@ def get_pl_usage(platform_sheets):
                     F"please check the format error in platform {platform_name} usage: {e}", "red"))
                 exit(-1)
 
+        overall = 0
         for v, _ in ret[platform_name].items():
-            ret[platform_name][v]["percentage"] = ret[platform_name][v]["maxqu"] / total_resource
+            per = int(ret[platform_name][v]["maxqu"] * 1000) / total_resource
+            ret[platform_name][v]["percentage"] = per
+            overall += per
+        assert overall == "10000", colored(F"there are errors in the percentange of platform {platform}", "red")
 
     return ret
 
