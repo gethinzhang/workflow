@@ -250,3 +250,18 @@ def get_full_border(sheetId, rowStart, rowEnd, colStart, colEnd):
                 }
             }
         }}
+
+
+def get_autosize(sheetId):
+    merge_req = []
+
+    merge_req.append({
+        'autoResizeDimensions': {
+            'dimensions': {
+                'sheetId': sheetId,
+                'dimension': 'COLUMNS',
+            },
+        }}
+    )
+
+    return merge_req
