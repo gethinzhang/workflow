@@ -2,6 +2,7 @@
 spreadsheet common libraries
 '''
 from services import get_spreadsheet_service
+from decimal import Decimal
 
 
 def get_one_sheet_content(doc_id, sheet_name):
@@ -110,6 +111,8 @@ def get_cell_value(value, textColor_code="000000", background_code="FFFFFF", try
         "userEnteredFormat": {},
     }
     if try_use_number:
+        if isinstance(value, Decimal):
+            value = float(value)
         ret["userEnteredValue"]["numberValue"] = value
         if number_format:
             ret["userEnteredFormat"]["numberFormat"] = number_format

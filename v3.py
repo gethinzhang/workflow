@@ -3,8 +3,10 @@
 from termcolor import colored
 from drive import create_file_in_folder, GOOGLE_SHEET_MIME
 from collections import OrderedDict
+from decimal import Decimal, ROUND_HALF_UP
 import spreadsheet
 import drive
+
 import pprint
 
 BILL_MONTH = "May"
@@ -46,6 +48,24 @@ IGNORE_SET = set([
     "kyc",
     "bank",
 ])
+
+
+def normalize_weights(weights, max_range=10000):
+    weights = [Decimal(str(w)) for w in weights]
+    sum_weights = sum(weights)
+    normalized_array = [
+        round((w / sum_weights) * max_range, 0)
+        for w in weights
+    ]
+
+    diff = max_range - sum(normalized_array)
+    if diff != 0:
+        index = max(range(len(normalized_array)),
+                    key=lambda i: (weights[i] / sum_weights) % 1)
+        normalized_array[index] += diff
+
+    return normalized_array
+
 
 def get_key_sheets(meta):
     CPO_OVERALL_BILL_SHEET = None
@@ -104,7 +124,7 @@ def get_cpo_office_overall_bill(cpo_office_overall_sheet):
     }
     '''
     def _C():
-        return {"idc_cost": 0, "conn_cost": 0, "mw": 0, "server_cost": 0, "network_cost": 0, "server_count": 0}
+        return {"power_opex": 0, "conn_opex": 0, "mw": 0, "server_capex": 0, "network_capex": 0, "server_count": 0}
     ret = {
         "others": _C(),
         "us": _C(),
@@ -119,7 +139,7 @@ def get_cpo_office_overall_bill(cpo_office_overall_sheet):
 (Team,BU,Region,IDC Cost,Connectivity Cost,MW,Server Cost,Network Cost,Server Count)
 but got {headers} in excel"""
     for row in rows[2:]:  # ignore the two line
-        team, bu, region, idc_cost, conn_cost, mw, server_cost, network_cost, server_count = row
+        team, bu, region, power_opex, conn_opex, mw, server_capex, network_capex, server_count = row
 
         if bu != NON_BANK_FILTER:
             continue
@@ -136,12 +156,12 @@ but got {headers} in excel"""
             continue
 
         # clean up the data
-        ret[region]["idc_cost"] += float(idc_cost)
-        ret[region]["conn_cost"] += float(conn_cost)
-        ret[region]["mw"] += float(mw)
-        ret[region]["server_cost"] += float(server_cost)
-        ret[region]["network_cost"] += float(network_cost)
-        ret[region]["server_count"] += float(server_count)
+        ret[region]["power_opex"] += Decimal(power_opex)
+        ret[region]["conn_opex"] += Decimal(conn_opex)
+        ret[region]["mw"] += Decimal(mw)
+        ret[region]["server_capex"] += Decimal(server_capex)
+        ret[region]["network_capex"] += Decimal(network_capex)
+        ret[region]["server_count"] += Decimal(server_count)
 
     return ret
 
@@ -199,14 +219,13 @@ def get_platform_servers(server_qty_sheet, storage_addtional_sheet):
         if BU != NON_BANK_FILTER:  # ignore bank
             continue
 
+        if location.lower() == "us":
+            loc = "us"
+        else:
+            loc = "others"
         if idc == NON_LIVE_DC:
             platform = "nonlive"
         elif bu == "shopee" or bu == "seamoney":
-            if location.lower() == "us":
-                loc = "us"
-            else:
-                loc = "others"
-
             if bu == "seamoney":
                 platform = "seamoney"
         else:
@@ -246,8 +265,8 @@ def get_price_unit(pricing_sheet):
     for row in rows[1:]:
         config_name, price, power = row
         ret[config_name.lower()] = {
-            "price": float(price),
-            "power": float(power),
+            "price": Decimal(price) * 100,
+            "power": Decimal(power),
         }
 
     return ret
@@ -274,12 +293,11 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
     }
     '''
     def _summary_prices(server_config_map):
-        capex = 0
-        server_power = 0
+        capex = Decimal()
+        server_power = Decimal()
         server_count = 0
 
         for server_config, qty in server_config_map.items():
-            o = server_config
             if server_config not in server_unit_price:
                 # print(colored(F"server config name {server_config} not in map, so I chagne to {STANDARD_SERVER_CONFIG}", "green"))
                 server_config = STANDARD_SERVER_CONFIG
@@ -295,14 +313,10 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
 
     def _C():
         return {
-            "total_server_capex": 0.0,
+            "total_server_capex": Decimal(),
             "total_server_count": 0,
-            "total_power": 0.0,
+            "total_power": Decimal(),
         }
-    summary = {
-        "us": _C(),
-        "others": _C(),
-    }
     bare_metal_ret = {
         "us": {},
         "others": {}
@@ -333,39 +347,37 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
 
     for loc, platforms_qty in server_qty.items():
         for platform, server_config_map in platforms_qty.items():
-            print("\n")
             if platform not in ret[loc]:
                 ret[loc][platform] = {}
 
             capex, server_power, server_count = _summary_prices(
                 server_config_map)
 
-            if loc == "others" and platform == "Cache":
-                exit(0)
             ret[loc][platform] = {
                 "server_capex": capex,
                 "server_power": server_power,
                 "server_count": server_count,
-                "projected_server_capex": 0.0,
-                "projected_network_capex": 0.0,
-                "projected_power_opex": 0.0,
-                "projected_conn_opex": 0.0,
+                # final projected capex should be at most two decimal degits
+                "projected_server_capex": 0,
+                "projected_network_capex": 0,
+                "projected_power_opex": 0,
+                "projected_conn_opex": 0,
+                "projected_capex": 0,
+                "projected_opex": 0,
             }
-            if platform != "nonlive":  # non live no need join total calculation
-                summary[loc]["total_server_count"] += server_count
-                summary[loc]["total_server_capex"] += capex
-                summary[loc]["total_power"] += server_power
 
     for loc, bmp in bare_metal_map.items():
         assert "AZ-Baremetal" not in ret[loc]
         ret[loc]["AZ-Baremetal"] = {
-            "server_capex": 0,
-            "server_power": 0.0,
+            "server_capex": Decimal(),
+            "server_power": Decimal(),
             "server_count": 0,
-            "projected_server_capex": 0.0,
-            "projected_network_capex": 0.0,
-            "projected_power_opex": 0.0,
-            "projected_conn_opex": 0.0,
+            "projected_server_capex": 0,
+            "projected_network_capex": 0,
+            "projected_power_opex": 0,
+            "projected_conn_opex": 0,
+            "projected_capex": 0,
+            "projected_opex": 0,
         }
         for pl, bm_config_map in bmp.items():
             pl_bm_capex, pl_bm_power, pl_bm_count = _summary_prices(
@@ -386,42 +398,95 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
             }
 
     for loc, loc_details in ret.items():
+        platforms = []
+        platform_capex_weights = []
+        platform_power_weights = []
+        platform_sc_weights = []
         for platform, platform_cost in loc_details.items():
+            if platform == "nonlive":
+                continue
+            platforms.append(platform)
+            platform_capex_weights.append(platform_cost["server_capex"])
+            platform_power_weights.append(platform_cost["server_power"])
+            platform_sc_weights.append(platform_cost["server_count"])
+        platform_capex_weights = normalize_weights(platform_capex_weights)
+        platform_power_weights = normalize_weights(platform_power_weights)
+        platform_sc_weights = normalize_weights(platform_sc_weights)
+
+        assert sum(platform_capex_weights) == 10000
+        assert sum(platform_power_weights) == 10000
+        assert sum(platform_sc_weights) == 10000
+        platform_capex_frac = dict(zip(platforms, platform_capex_weights))
+        platform_power_frac = dict(zip(platforms, platform_power_weights))
+        platform_sc_frac = dict(zip(platforms, platform_sc_weights))
+        frac_error = {
+            "server_capex_error": int(cpo_bill[loc]["server_capex"] * 100),
+            "network_capex_error": int(cpo_bill[loc]["network_capex"] * 100),
+            "power_opex_error": int(cpo_bill[loc]["power_opex"] * 100),
+            "conn_opex_error": int(cpo_bill[loc]["conn_opex"] * 100),
+        }
+
+        for platform, platform_cost in loc_details.items():
+            if platform == "nonlive":
+                continue
             details = cpo_bill[loc]
-            platform_capex, platform_server_count, platform_server_power =\
-                float(platform_cost["server_capex"]), float(platform_cost["server_count"]),\
-                float(platform_cost["server_power"])
+            server_capex = details["server_capex"] * \
+                platform_capex_frac[platform]
+            network_capex = details["network_capex"] * \
+                platform_sc_frac[platform]
+            power_opex = details["power_opex"] * platform_power_frac[platform]
+            conn_opex = details["conn_opex"] * platform_sc_frac[platform]
+            total_capex = server_capex + network_capex
+            total_opex = power_opex + conn_opex
+            frac_error["server_capex_error"] -= int(server_capex / 100)
+            frac_error["network_capex_error"] -= int(network_capex / 100)
+            frac_error["power_opex_error"] -= int(power_opex / 100)
+            frac_error["conn_opex_error"] -= int(conn_opex / 100)
 
-            ret[loc][platform]["server_share"] = platform_server_count / \
-                summary[loc]["total_server_count"]
-            ret[loc][platform]["projected_server_capex"] += platform_capex / \
-                summary[loc]["total_server_capex"] * details["server_cost"]
-            ret[loc][platform]["projected_network_capex"] += platform_server_count / \
-                summary[loc]["total_server_count"] * details["network_cost"]
-            ret[loc][platform]["projected_power_opex"] += platform_server_power / \
-                summary[loc]["total_power"] * details["idc_cost"]
-            ret[loc][platform]["projected_conn_opex"] += platform_server_count / \
-                summary[loc]["total_server_count"] * details["conn_cost"]
-            ret[loc][platform]["projected_capex"] = ret[loc][platform]["projected_server_capex"] + \
-                ret[loc][platform]["projected_network_capex"]
-            ret[loc][platform]["projected_opex"] = ret[loc][platform]["projected_power_opex"] + \
-                ret[loc][platform]["projected_conn_opex"]
+            ret[loc][platform]["projected_server_capex"] = server_capex
+            ret[loc][platform]["projected_network_capex"] = network_capex
+            ret[loc][platform]["projected_power_opex"] = power_opex
+            ret[loc][platform]["projected_conn_opex"] = conn_opex
+            ret[loc][platform]["projected_capex"] = total_capex
+            ret[loc][platform]["projected_opex"] = total_opex
+        # ok, I believe we still have error, then give to seamoney, but make sure error is withint limited
+        pprint.pprint(frac_error)
+        exit(0)
 
+    pls = []
+    pl_capex_weights = []
+    pl_power_weights = []
+    for pl, bmd in bare_metal_ret[loc].items():
+        pls.append(pl)
+        pl_capex_weights.append(bmd["server_capex"])
+        pl_power_weights.append(bmd["server_power"])
+    pl_capex_weights = normalize_weights(pl_capex_weights)
+    pl_power_weights = normalize_weights(pl_power_weights)
+    pl_capex_frac = dict(zip(pls, pl_capex_weights))
+    pl_power_frac = dict(zip(pls, pl_power_weights))
     # calculate baremetal infos
     for pl, bmd in bare_metal_ret[loc].items():
-        bmd["projected_capex"] = bmd["server_capex"] / \
-            ret[loc]["AZ-Baremetal"]["server_capex"] * \
-            ret[loc]["AZ-Baremetal"]["projected_capex"]
-        bmd["projected_opex"] = bmd["server_power"] / \
-            ret[loc]["AZ-Baremetal"]["server_power"] * \
-            ret[loc]["AZ-Baremetal"]["projected_opex"]
+        bmd["projected_capex"] = ret[loc]["AZ-Baremetal"]["projected_capex"] * \
+            pl_capex_frac[pl] / 10000
+        bmd["projected_opex"] = ret[loc]["AZ-Baremetal"]["projected_opex"] * \
+            pl_power_frac[pl] / 10000
 
-    # remove baremetal
-    del ret[loc]["AZ-Baremetal"]
+    for loc, lc in ret.items():
+        capex_sum = Decimal()
+        opex_sum = Decimal()
+        for platform, pm in lc.items():
+            capex_sum += pm["projected_capex"]
+            opex_sum += pm["projected_opex"]
+        # check point 1, sum of platform costs should nearly cpo office's bill
+        capex_error = capex_sum - \
+            cpo_bill[loc]["server_capex"] - cpo_bill[loc]["network_capex"]
+        opex_error = opex_sum - \
+            cpo_bill[loc]["power_opex"] - cpo_bill[loc]["conn_opex"]
+        assert capex_error < 10, "{loc} capex error shoud under 10, now is {capex_error}"
+        assert opex_error < 10, "{loc} opex error shoud under 10, now is {opex_error}"
 
-    pprint.pprint(ret)
-    pprint.pprint(bare_metal_ret)
-    exit(0)
+    # del ret[loc]["AZ-Baremetal"]
+
     return ret, bare_metal_ret
 
 
@@ -454,7 +519,6 @@ def get_pl_usage(platform_sheets):
         assert platform_name not in ret, F"duplicated {platform_name}?"
         ret[platform_name] = {}
         indicators[platform_name] = rows[1][1]  # set the indicators
-        total_resource = 0.0
 
         for row in rows[1:]:
             try:
@@ -469,20 +533,21 @@ def get_pl_usage(platform_sheets):
                     "quota": float(quota),
                     "usage": float(usage),
                     "maxqu": max(float(quota), float(usage)),
-                    "percentage": 0, # always use percentage as x% * 1000 to avoid error
+                    "percentage": 0.0,
                 }
-                total_resource += ret[platform_name][product_line]["maxqu"]
             except ValueError as e:
                 print(colored(
                     F"please check the format error in platform {platform_name} usage: {e}", "red"))
                 exit(-1)
 
-        overall = 0
-        for v, _ in ret[platform_name].items():
-            per = int(ret[platform_name][v]["maxqu"] * 1000) / total_resource
-            ret[platform_name][v]["percentage"] = per
-            overall += per
-        assert overall == "10000", colored(F"there are errors in the percentange of platform {platform}", "red")
+        qu_weights = []
+        pls = []
+        for pl, _ in ret[platform_name].items():
+            qu_weights.append(ret[platform_name][pl]["maxqu"])
+            pls.append(pl)
+        qu_weights = normalize_weights(qu_weights)
+        for i in range(0, len(pls)):
+            ret[platform_name][pls[i]]["percentage"] = qu_weights[i]
 
     return ret
 
@@ -493,6 +558,8 @@ def get_pl_bill(platform_cost, pl_usage, bare_metal_info):
         "us": {},
     }
     loc = "others"  # don't consider us yet
+    cksum_capex = {"us": {}, "others": {}}
+    cksum_opex = {"us": {}, "others": {}}
 
     for platform, product_lines_usages in pl_usage.items():
         for pl, pl_usage in product_lines_usages.items():
@@ -501,9 +568,16 @@ def get_pl_bill(platform_cost, pl_usage, bare_metal_info):
             assert platform not in ret[loc][pl]
             ret[loc][pl][platform] = pl_usage.copy()
             ret[loc][pl][platform]["capex"] = platform_cost[loc][platform]["projected_capex"] * \
-                pl_usage["percentage"]
+                pl_usage["percentage"] / 10000
             ret[loc][pl][platform]["opex"] = platform_cost[loc][platform]["projected_opex"] * \
-                pl_usage["percentage"]
+                pl_usage["percentage"] / 10000
+
+            if platform not in cksum_capex[loc]:
+                cksum_capex[loc][platform] = Decimal()
+            if platform not in cksum_opex[loc]:
+                cksum_opex[loc][platform] = Decimal()
+            cksum_capex[loc][platform] += ret[loc][pl][platform]["capex"]
+            cksum_opex[loc][platform] += ret[loc][pl][platform]["opex"]
 
     for pl, m in ret[loc].items():
         if pl not in bare_metal_info[loc]:
@@ -512,6 +586,18 @@ def get_pl_bill(platform_cost, pl_usage, bare_metal_info):
             "capex": bare_metal_info[loc][pl]["projected_capex"],
             "opex": bare_metal_info[loc][pl]["projected_opex"]
         }
+
+    # checkpoint 2, check the sum of productline cost similar to platform projected capex
+        for platform, pv in platform_cost[loc].items():
+            if platform not in cksum_capex[loc]:
+                # print(colored(F"unknow checksum for {platform}, continue", "red"))
+                continue
+            capex_error = pv["projected_capex"] - cksum_capex[loc][platform]
+            opex_error = pv["projected_opex"] - cksum_opex[loc][platform]
+            print(colored(
+                F"checking for platform {platform} cost.. capex_error: {capex_error}, opex_error: {opex_error}, Done ", "green"))
+            assert capex_error < 10, "platform {platform} capex error {capex_error} > 10"
+            assert opex_error < 10, "platform {platform} capex error {opex_error} > 10"
 
     return ret
 
@@ -523,6 +609,7 @@ def get_pl_map(product_line_sheet):
     ret = {}
     rows = spreadsheet.get_one_sheet_content(BILL_SHEET_ID, title)
     for row in rows[1:]:
+        row = row + [''] * max(0, 6 - len(row))  # padding
         division, l0, l1, mapping, cpo_office_link, quota_link = row
         if len(mapping) == 0 or mapping == '-':
             continue
@@ -559,6 +646,59 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
                 platform_set.add(platform)
     platforms.sort()
 
+    # platform costs sheets
+    for loc, pcm in platform_cost.items():
+        row_data = [
+            spreadsheet.get_cell_value("Platforms"),
+            spreadsheet.get_cell_value("#Server"),
+            spreadsheet.get_cell_value("Total Power"),
+            spreadsheet.get_cell_value("Total Capex"),
+            spreadsheet.get_cell_value("Projected Capex"),
+            spreadsheet.get_cell_value("Projected Opex"),
+            spreadsheet.get_cell_value("Projected Server Capex"),
+            spreadsheet.get_cell_value("Projected Network Capex"),
+            spreadsheet.get_cell_value("Projected Power Opex"),
+            spreadsheet.get_cell_value("Projected Conn Opex"),
+        ]
+        rows_data = [{"values": row_data}]
+
+        for platform in platforms + ["seamoney", "nonlive"]:
+            if platform not in pcm:
+                continue
+            row_data = [
+                spreadsheet.get_cell_value(platform),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["server_count"], try_use_number=True),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["server_power"], try_use_number=True),
+                spreadsheet.get_cell_value(
+                    Decimal(pcm[platform]["server_capex"]) / 100, try_use_number=True),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["projected_capex"], try_use_number=True),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["projected_opex"], try_use_number=True),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["projected_server_capex"], try_use_number=True),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["projected_network_capex"], try_use_number=True),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["projected_power_opex"], try_use_number=True),
+                spreadsheet.get_cell_value(
+                    pcm[platform]["projected_conn_opex"], try_use_number=True),
+            ]
+            rows_data.append({"values": row_data})
+
+        body["sheets"].append(
+            {
+                "properties": {
+                    "title": F"{BILL_MONTH} Platform Costs Overview - {loc}",
+                },
+                "data": {
+                    "rowData": rows_data
+                },
+            },
+        )
+
     rows_data = []
     header1 = [
         spreadsheet.get_cell_value("L0"),
@@ -592,22 +732,22 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
             spreadsheet.get_cell_value(l1),
             spreadsheet.get_cell_value(pl),
         ]
-        capex_sum = 0.0
-        opex_sum = 0.0
+        capex_sum = Decimal()
+        opex_sum = Decimal()
         for platform in platforms:
             if platform in platform_bills:
-                capex_sum += platform_bills[platform]["capex"] 
+                capex_sum += platform_bills[platform]["capex"]
                 opex_sum += platform_bills[platform]["opex"]
                 row_data.append(spreadsheet.get_cell_value(
-                    platform_bills[platform]["capex"], try_use_number=True))
+                    float(platform_bills[platform]["capex"]), try_use_number=True))
                 row_data.append(spreadsheet.get_cell_value(
-                    platform_bills[platform]["opex"], try_use_number=True))
+                    float(platform_bills[platform]["opex"]), try_use_number=True))
             else:
                 row_data.append(spreadsheet.get_cell_value(''))
                 row_data.append(spreadsheet.get_cell_value(''))
         row_data[3:3] = [
-            spreadsheet.get_cell_value(capex_sum, try_use_number=True),
-            spreadsheet.get_cell_value(opex_sum, try_use_number=True)
+            spreadsheet.get_cell_value(float(capex_sum), try_use_number=True),
+            spreadsheet.get_cell_value(float(opex_sum), try_use_number=True)
         ]
         rows_data.append({"values": row_data})
 
@@ -626,16 +766,16 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
     doc_id = overview_ss["spreadsheetId"]
     drive.move_doc_to_folder(doc_id, OUTPUT_FOLDER)
 
-    overview_bill_sheet_id = overview_ss["sheets"][0]["properties"]["sheetId"]
     merge_req = []
 
     for sheet in overview_ss["sheets"]:
         merge_req.append(spreadsheet.get_autosize(
             sheet["properties"]["sheetId"]))
 
+    overview_bill_sheet_id = overview_ss["sheets"][2]["properties"]["sheetId"]
     # merge every two columns
     merge_req.append(spreadsheet.get_merge_cells_cmd(
-        overview_bill_sheet_id, 0, 1, 3, 5), # sum col
+        overview_bill_sheet_id, 0, 1, 3, 5),  # sum col
     )
     for i, platform in enumerate(platforms):
         merge_req.append(spreadsheet.get_merge_cells_cmd(
