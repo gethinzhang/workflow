@@ -12,12 +12,15 @@ import pprint
 BILL_MONTH = "May"
 BILL_SHEET_ID = "1VXbMo0fFjNANF02lxPIqGJxhdeRja7SVs3VtksdKfU8"
 OUTPUT_FOLDER = "1ixZ-VtoPV2i6-SQ_q0lDsmx_9svrOvH1"
+#OUTPUT_FOLDER = "1eCsCABMYJYw8M68-MKPPKYAD3l8U1C7b"
 
 CPO_OFFICE_OVERALL_SHEET_NAME = "CPO Office Bill"
 SERVER_MAP_SHEET_NAME = "ServerMap"
 SERVER_PRICE_SHEET_NAME = "Server Pricing"
-ADDTIONAL_STORAGE_MAP_SHEET_NAME = "Additional-SM-Storage"
-ADDITONAL_AZ_BAREMETAL_SHEET_NAME = "Additional-AZ-Baremetal"
+ADDITIONAL_STORAGE_MAP_SHEET_NAME = "Additional-SM-Storage"
+ADDITIONAL_AZ_BAREMETAL_SHEET_NAME = "Additional-AZ-Baremetal"
+ADDITIONAL_SEAMONEY_US_SHEET_NAME = "Additional-Seamoney-US"
+ADDITIONAL_SEAMONEY_OTHERS_SHEET_NAME = "Additional-Seamoney-Others"
 PRODUCT_LINE_MAP_SHEET_NAME = "Productline Mapping"
 STANDARD_SERVER_CONFIG = "s1_v2"
 NON_LIVE_DC = "DC West"
@@ -72,6 +75,8 @@ def get_key_sheets(meta):
     SERVER_QTY_SHEET = None
     SERVER_PRICE_SHEET = None
     ADDTIONAL_STORAGE_SM_SHEET = None
+    ADDITIONAL_SEAMONEY_US_SHEET = None
+    ADDITIONAL_SEAMONEY_OTHERS_SHEET = None
     BARE_METAL_SHEET = None
     PL_MAP = None
     PLATFORM_SHEETS = {}
@@ -88,12 +93,18 @@ def get_key_sheets(meta):
         elif title == SERVER_PRICE_SHEET_NAME:
             assert SERVER_PRICE_SHEET is None, F"there are two sheets name called {SERVER_PRICE_SHEET_NAME}"
             SERVER_PRICE_SHEET = sheet_meta
-        elif title == ADDTIONAL_STORAGE_MAP_SHEET_NAME:
-            assert ADDTIONAL_STORAGE_SM_SHEET is None, F"there are two sheets name called {ADDTIONAL_STORAGE_MAP_SHEET_NAME}"
+        elif title.startswith(ADDITIONAL_STORAGE_MAP_SHEET_NAME):
+            assert ADDTIONAL_STORAGE_SM_SHEET is None, F"there are two sheets name called {ADDITIONAL_STORAGE_MAP_SHEET_NAME}"
             ADDTIONAL_STORAGE_SM_SHEET = sheet_meta
-        elif title == ADDITONAL_AZ_BAREMETAL_SHEET_NAME:
-            assert BARE_METAL_SHEET is None, F"there are two sheets name called {ADDITONAL_AZ_BAREMETAL_SHEET_NAME}"
+        elif title.startswith(ADDITIONAL_AZ_BAREMETAL_SHEET_NAME):
+            assert BARE_METAL_SHEET is None, F"there are two sheets name called {ADDITIONAL_AZ_BAREMETAL_SHEET_NAME}"
             BARE_METAL_SHEET = sheet_meta
+        elif title.startswith(ADDITIONAL_SEAMONEY_OTHERS_SHEET_NAME):
+            assert ADDITIONAL_SEAMONEY_OTHERS_SHEET is None, F"there are two sheets name called {ADDITIONAL_SEAMONEY_OTHERS_SHEET_NAME}"
+            ADDITIONAL_SEAMONEY_OTHERS_SHEET = sheet_meta
+        elif title.startswith(ADDITIONAL_SEAMONEY_US_SHEET_NAME):
+            assert ADDITIONAL_SEAMONEY_US_SHEET is None, F"there are two sheets name called {ADDITIONAL_SEAMONEY_US_SHEET_NAME}"
+            ADDITIONAL_SEAMONEY_US_SHEET = sheet_meta
         elif title == PRODUCT_LINE_MAP_SHEET_NAME:
             assert PL_MAP is None, F"there are two sheets name called {PRODUCT_LINE_MAP_SHEET_NAME}"
             PL_MAP = sheet_meta
@@ -102,7 +113,7 @@ def get_key_sheets(meta):
             PLATFORM_SHEETS[platform] = sheet_meta
 
     return CPO_OVERALL_BILL_SHEET, SERVER_QTY_SHEET, SERVER_PRICE_SHEET, PL_MAP, \
-        ADDTIONAL_STORAGE_SM_SHEET, BARE_METAL_SHEET, PLATFORM_SHEETS
+        ADDTIONAL_STORAGE_SM_SHEET, ADDITIONAL_SEAMONEY_US_SHEET, ADDITIONAL_SEAMONEY_OTHERS_SHEET, BARE_METAL_SHEET, PLATFORM_SHEETS
 
 
 def get_cpo_office_overall_bill(cpo_office_overall_sheet):
@@ -212,7 +223,7 @@ def get_platform_servers(server_qty_sheet, storage_addtional_sheet):
                 :10]
         except ValueError:
             print(F"illegal row in server_quantity sheet {str(row)}")
-            exit(0)
+            exit(-1)
 
         if category != "APP":  # ignore DI/AI
             continue
@@ -272,7 +283,7 @@ def get_price_unit(pricing_sheet):
     return ret
 
 
-def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_sheet):
+def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_sheet, seamoney_sheet_us, seamoney_sheet_others):
     '''
     output format is
     platform, server_count, total_capex, total_server_power, projected_server_capex, projected_network_device_capex, 
@@ -354,8 +365,8 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
                 server_config_map)
 
             ret[loc][platform] = {
-                "server_capex": capex,
-                "server_power": server_power,
+                "server_capex": capex if platform != "nonlive" else 0,
+                "server_power": server_power if platform != "nonlive" else 0,
                 "server_count": server_count,
                 # final projected capex should be at most two decimal degits
                 "projected_server_capex": 0,
@@ -419,39 +430,24 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
         platform_capex_frac = dict(zip(platforms, platform_capex_weights))
         platform_power_frac = dict(zip(platforms, platform_power_weights))
         platform_sc_frac = dict(zip(platforms, platform_sc_weights))
-        frac_error = {
-            "server_capex_error": int(cpo_bill[loc]["server_capex"] * 100),
-            "network_capex_error": int(cpo_bill[loc]["network_capex"] * 100),
-            "power_opex_error": int(cpo_bill[loc]["power_opex"] * 100),
-            "conn_opex_error": int(cpo_bill[loc]["conn_opex"] * 100),
-        }
 
         for platform, platform_cost in loc_details.items():
             if platform == "nonlive":
                 continue
             details = cpo_bill[loc]
-            server_capex = details["server_capex"] * \
-                platform_capex_frac[platform]
-            network_capex = details["network_capex"] * \
-                platform_sc_frac[platform]
-            power_opex = details["power_opex"] * platform_power_frac[platform]
-            conn_opex = details["conn_opex"] * platform_sc_frac[platform]
-            total_capex = server_capex + network_capex
-            total_opex = power_opex + conn_opex
-            frac_error["server_capex_error"] -= int(server_capex / 100)
-            frac_error["network_capex_error"] -= int(network_capex / 100)
-            frac_error["power_opex_error"] -= int(power_opex / 100)
-            frac_error["conn_opex_error"] -= int(conn_opex / 100)
 
-            ret[loc][platform]["projected_server_capex"] = server_capex
-            ret[loc][platform]["projected_network_capex"] = network_capex
-            ret[loc][platform]["projected_power_opex"] = power_opex
-            ret[loc][platform]["projected_conn_opex"] = conn_opex
-            ret[loc][platform]["projected_capex"] = total_capex
-            ret[loc][platform]["projected_opex"] = total_opex
-        # ok, I believe we still have error, then give to seamoney, but make sure error is withint limited
-        pprint.pprint(frac_error)
-        exit(0)
+            ret[loc][platform]["projected_server_capex"] = details["server_capex"] * \
+                platform_capex_frac[platform] / 10000
+            ret[loc][platform]["projected_network_capex"] = details["network_capex"] * \
+                platform_sc_frac[platform] / 10000
+            ret[loc][platform]["projected_power_opex"] = details["power_opex"] * \
+                platform_power_frac[platform] / 10000
+            ret[loc][platform]["projected_conn_opex"] = details["conn_opex"] * \
+                platform_sc_frac[platform] / 10000
+            ret[loc][platform]["projected_capex"] = ret[loc][platform]["projected_server_capex"] + \
+                ret[loc][platform]["projected_network_capex"]
+            ret[loc][platform]["projected_opex"] = ret[loc][platform]["projected_power_opex"] + \
+                ret[loc][platform]["projected_conn_opex"]
 
     pls = []
     pl_capex_weights = []
@@ -485,9 +481,63 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
         assert capex_error < 10, "{loc} capex error shoud under 10, now is {capex_error}"
         assert opex_error < 10, "{loc} opex error shoud under 10, now is {opex_error}"
 
+    seamoney_ret = {"us": {}, "others": {}}
+    # calculate seamoney
+
+    def _get_seamoney_map(seamoney_sheet):
+        ret = {}
+        seamoney_rows = spreadsheet.get_one_sheet_content(
+            BILL_SHEET_ID, seamoney_sheet["properties"]["title"])
+        smpls = seamoney_rows[0][1:]
+        for smpl in smpls:
+            ret[smpl] = {}
+
+        for seamoney_row in seamoney_rows[1:]:
+            assert len(seamoney_row) > len(
+                smpls), F"invalid server config line {seamoney_rows} in seamoney sheet"
+            server_config = seamoney_row[0].lower()
+            for i in range(len(smpls)):
+                if server_config not in ret[smpls[i]]:
+                    ret[smpls[i]][server_config] = 0
+                ret[smpls[i]][server_config] += int(seamoney_row[i+1])
+        return ret
+
+    seamoney_map = {
+        "us": _get_seamoney_map(seamoney_sheet_us),
+        "others": _get_seamoney_map(seamoney_sheet_others)
+    }
+
+    for loc, smp in seamoney_map.items():
+        smpls = []
+        smpl_capex_weights = []
+        smpl_power_weights = []
+        seamoney_ret[loc] = {}
+        for smpl, pl_config_map in smp.items():
+            pl_sm_capex, pl_sm_power, pl_sm_count = _summary_prices(
+                pl_config_map)
+            pprint.pprint(pl_config_map)
+            seamoney_ret[loc][smpl] = {
+                "server_capex": pl_sm_capex,
+                "server_power": pl_sm_power,
+                "server_count": pl_sm_count,
+            }
+            smpls.append(smpl)
+            smpl_capex_weights.append(pl_sm_capex)
+            smpl_power_weights.append(pl_sm_power)
+        smpl_capex_weights = normalize_weights(smpl_capex_weights)
+        smpl_power_weights = normalize_weights(smpl_power_weights)
+        smpl_capex_frac = dict(zip(smpls, smpl_capex_weights))
+        smpl_power_frac = dict(zip(smpls, smpl_power_weights))
+
+        for smpl, smr in seamoney_ret[loc].items():
+            smr["projected_capex"] = ret[loc]["seamoney"]["projected_capex"] * \
+                smpl_capex_frac[smpl] / 10000
+            smr["projected_opex"] = ret[loc]["seamoney"]["projected_opex"] * \
+                smpl_power_frac[smpl] / 10000
+
     # del ret[loc]["AZ-Baremetal"]
 
-    return ret, bare_metal_ret
+    return ret, bare_metal_ret, seamoney_ret
 
 
 def get_pl_usage(platform_sheets):
@@ -545,14 +595,14 @@ def get_pl_usage(platform_sheets):
         for pl, _ in ret[platform_name].items():
             qu_weights.append(ret[platform_name][pl]["maxqu"])
             pls.append(pl)
-        qu_weights = normalize_weights(qu_weights)
+        qu_weights = normalize_weights(qu_weights, 1000000)
         for i in range(0, len(pls)):
             ret[platform_name][pls[i]]["percentage"] = qu_weights[i]
 
     return ret
 
 
-def get_pl_bill(platform_cost, pl_usage, bare_metal_info):
+def get_pl_bill(product_line_map, platform_cost, pl_usage, bare_metal_info, seamoney_info):
     ret = {
         "others": {},
         "us": {},
@@ -560,17 +610,25 @@ def get_pl_bill(platform_cost, pl_usage, bare_metal_info):
     loc = "others"  # don't consider us yet
     cksum_capex = {"us": {}, "others": {}}
     cksum_opex = {"us": {}, "others": {}}
+    for pl, _ in product_line_map.items():
+        ret[loc][pl] = {}
+
+    for platform, product_lines_usages in pl_usage.items():
+        for pl, _ in product_lines_usages.items():
+            assert pl in ret[loc], F"dummy productline {pl} in platform {platform}"
+        for pl, _ in bare_metal_info[loc].items():
+            assert pl in ret[loc], F"dummy productline {pl} in baremetal"
+        for pl, _ in seamoney_info[loc].items():
+            assert pl in ret[loc], F"dummy productline {pl} in seamoney"
 
     for platform, product_lines_usages in pl_usage.items():
         for pl, pl_usage in product_lines_usages.items():
-            if pl not in ret[loc]:
-                ret[loc][pl] = {}
             assert platform not in ret[loc][pl]
             ret[loc][pl][platform] = pl_usage.copy()
             ret[loc][pl][platform]["capex"] = platform_cost[loc][platform]["projected_capex"] * \
-                pl_usage["percentage"] / 10000
+                pl_usage["percentage"] / 1000000
             ret[loc][pl][platform]["opex"] = platform_cost[loc][platform]["projected_opex"] * \
-                pl_usage["percentage"] / 10000
+                pl_usage["percentage"] / 1000000
 
             if platform not in cksum_capex[loc]:
                 cksum_capex[loc][platform] = Decimal()
@@ -579,12 +637,16 @@ def get_pl_bill(platform_cost, pl_usage, bare_metal_info):
             cksum_capex[loc][platform] += ret[loc][pl][platform]["capex"]
             cksum_opex[loc][platform] += ret[loc][pl][platform]["opex"]
 
-    for pl, m in ret[loc].items():
-        if pl not in bare_metal_info[loc]:
-            continue
-        m["AZ-Baremetal"] = {
+    for pl in bare_metal_info[loc]:
+        ret[loc][pl]["AZ-Baremetal"] = {
             "capex": bare_metal_info[loc][pl]["projected_capex"],
             "opex": bare_metal_info[loc][pl]["projected_opex"]
+        }
+
+    for pl in seamoney_info[loc]:
+        ret[loc][pl]["seamoney"] = {
+            "capex": seamoney_info[loc][pl]["projected_capex"],
+            "opex": seamoney_info[loc][pl]["projected_opex"],
         }
 
     # checkpoint 2, check the sum of productline cost similar to platform projected capex
@@ -662,7 +724,7 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
         ]
         rows_data = [{"values": row_data}]
 
-        for platform in platforms + ["seamoney", "nonlive"]:
+        for platform in platforms + ["nonlive"]:
             if platform not in pcm:
                 continue
             row_data = [
@@ -790,7 +852,7 @@ if __name__ == "__main__":
     meta = spreadsheet.get_spreadsheet_meta(
         BILL_SHEET_ID, fields=HIDDEN_BY_USER_FIELD)
     cpo_office_overall_sheet, server_qty_sheet, pricing_sheet, \
-        product_line_sheet, additional_storage_sheet, bare_metal_sheet, platform_sheets = get_key_sheets(
+        product_line_sheet, additional_storage_sheet, seamoney_sheet_us, seamoney_sheet_others, bare_metal_sheet, platform_sheets = get_key_sheets(
             meta)
     product_line_map = get_pl_map(product_line_sheet)
 
@@ -799,11 +861,12 @@ if __name__ == "__main__":
         server_qty_sheet, additional_storage_sheet)
     server_unit_price = get_price_unit(pricing_sheet)
 
-    platform_cost, bare_metal_cost = calculate_platform_cost(
-        cpo_overall, server_qty, server_unit_price, bare_metal_sheet)
+    platform_cost, bare_metal_cost, seamoney_cost = calculate_platform_cost(
+        cpo_overall, server_qty, server_unit_price, bare_metal_sheet, seamoney_sheet_us, seamoney_sheet_others)
 
     pl_usage = get_pl_usage(platform_sheets)
-    pl_bill = get_pl_bill(platform_cost, pl_usage, bare_metal_cost)
+    pl_bill = get_pl_bill(product_line_map, platform_cost, pl_usage,
+                          bare_metal_cost, seamoney_cost)
 
     # generate the bill
     product_line_map = get_pl_map(product_line_sheet)
