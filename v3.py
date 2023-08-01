@@ -1,18 +1,22 @@
 #!/usr/bin/env python
 
 from termcolor import colored
-from drive import create_file_in_folder, GOOGLE_SHEET_MIME
-from collections import OrderedDict
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 import spreadsheet
 import drive
 
 import pprint
 
+BILL_YEAR = 2023
 BILL_MONTH = "May"
+MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December']
+MONTH_INDEX = MONTHS.index(BILL_MONTH)
+assert MONTH_INDEX != -1, "invalid BILL MONTH!"
 BILL_SHEET_ID = "1VXbMo0fFjNANF02lxPIqGJxhdeRja7SVs3VtksdKfU8"
-OUTPUT_FOLDER = "1ixZ-VtoPV2i6-SQ_q0lDsmx_9svrOvH1"
-#OUTPUT_FOLDER = "1eCsCABMYJYw8M68-MKPPKYAD3l8U1C7b"
+PL_DASHBOARD_ID = "1BwEJO3VU16CetxAq-tJ8xesbtY516VH-7-H6gYOQq1Q"
+# OUTPUT_FOLDER = "1ixZ-VtoPV2i6-SQ_q0lDsmx_9svrOvH1"
+OUTPUT_FOLDER = "1eCsCABMYJYw8M68-MKPPKYAD3l8U1C7b"
 
 CPO_OFFICE_OVERALL_SHEET_NAME = "CPO Office Bill"
 SERVER_MAP_SHEET_NAME = "ServerMap"
@@ -515,7 +519,6 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
         for smpl, pl_config_map in smp.items():
             pl_sm_capex, pl_sm_power, pl_sm_count = _summary_prices(
                 pl_config_map)
-            pprint.pprint(pl_config_map)
             seamoney_ret[loc][smpl] = {
                 "server_capex": pl_sm_capex,
                 "server_power": pl_sm_power,
@@ -602,7 +605,7 @@ def get_pl_usage(platform_sheets):
     return ret
 
 
-def get_pl_bill(product_line_map, platform_cost, pl_usage, bare_metal_info, seamoney_info):
+def get_pl_r1_bill(product_line_map, platform_cost, pl_usage, bare_metal_info, seamoney_info):
     ret = {
         "others": {},
         "us": {},
@@ -664,6 +667,10 @@ def get_pl_bill(product_line_map, platform_cost, pl_usage, bare_metal_info, seam
     return ret
 
 
+def get_pl_r2_bill(r1_bill, ai_sheet, di_sheet):
+    pass
+
+
 def get_pl_map(product_line_sheet):
     properties = product_line_sheet["properties"]
     title = properties["title"]
@@ -676,7 +683,12 @@ def get_pl_map(product_line_sheet):
         if len(mapping) == 0 or mapping == '-':
             continue
         for m in mapping.split("\n"):
-            ret[m.strip()] = (l0, l1, cpo_office_link, quota_link)
+            m = m.strip()
+            if m in ret:
+                assert ret[m][1] == l0, F"we don't support L1 share cost yet!, duplicated {m}"
+                ret[m][2].append(l1)
+            else:
+                ret[m] = (division, l0, [l1], cpo_office_link, quota_link)
 
     return ret
 
@@ -689,7 +701,7 @@ generation parts
 '''
 
 
-def generate_overviews(pl_map, platform_cost, pl_bills):
+def generate_overviews(pl_map, platform_cost, pl_r1_bills):
     body = {
         "properties": {
             "title": F"App Platform Overviews - {BILL_MONTH}"
@@ -701,7 +713,7 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
     # get a sequencial platforms
     platform_set = set()
     platforms = []
-    for pl, platform_bills in pl_bills["others"].items():
+    for pl, platform_bills in pl_r1_bills["others"].items():
         for platform in platform_bills.keys():
             if platform not in platform_set:
                 platforms.append(platform)
@@ -753,7 +765,7 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
         body["sheets"].append(
             {
                 "properties": {
-                    "title": F"{BILL_MONTH} Platform Costs Overview - {loc}",
+                    "title": F"[{BILL_MONTH}] Platform R1 Costs Overview - {loc}",
                 },
                 "data": {
                     "rowData": rows_data
@@ -761,6 +773,7 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
             },
         )
 
+    dp_rows_data = []
     rows_data = []
     header1 = [
         spreadsheet.get_cell_value("L0"),
@@ -776,6 +789,22 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
         spreadsheet.get_cell_value("Capex"),
         spreadsheet.get_cell_value("Opex"),
     ]
+    dp_header1 = [
+        spreadsheet.get_cell_value("Department (Shopee App)"),
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value(F"{BILL_YEAR}-{BILL_MONTH}"),
+        spreadsheet.get_cell_value(""),
+    ]
+
+    dp_header2 = [
+        spreadsheet.get_cell_value("Division"),
+        spreadsheet.get_cell_value("L0"),
+        spreadsheet.get_cell_value("L1"),
+        spreadsheet.get_cell_value("Capex"),
+        spreadsheet.get_cell_value("Opex"),
+    ]
+
     for platform in platforms:
         header1.append(spreadsheet.get_cell_value(platform))
         header1.append(spreadsheet.get_cell_value(''))
@@ -783,15 +812,25 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
         header2.append(spreadsheet.get_cell_value('Opex'))
     rows_data.append({"values": header1})
     rows_data.append({"values": header2})
+    dp_rows_data.append({"values": dp_header1})
+    dp_rows_data.append({"values": dp_header2})
 
+    departments = {}
     for pl, pv in pl_map.items():
-        l0, l1, cpo_office_link, quota_link = pv
-        if pl not in pl_bills["others"]:
+        division, l0, l1, cpo_office_link, quota_link = pv
+        if pl not in pl_r1_bills["others"]:
             continue
-        platform_bills = pl_bills["others"][pl]
+        if (division, l0, l1[0]) not in departments:
+            departments[(division, l0, l1[0])] = {
+                "capex": Decimal(),
+                "opex": Decimal(),
+                "l1": l1,
+            }
+
+        platform_bills = pl_r1_bills["others"][pl]
         row_data = [
             spreadsheet.get_cell_value(l0),
-            spreadsheet.get_cell_value(l1),
+            spreadsheet.get_cell_value("\n".join(l1)),
             spreadsheet.get_cell_value(pl),
         ]
         capex_sum = Decimal()
@@ -807,6 +846,8 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
             else:
                 row_data.append(spreadsheet.get_cell_value(''))
                 row_data.append(spreadsheet.get_cell_value(''))
+        departments[(division, l0, l1[0])]["capex"] += capex_sum
+        departments[(division, l0, l1[0])]["opex"] += opex_sum
         row_data[3:3] = [
             spreadsheet.get_cell_value(float(capex_sum), try_use_number=True),
             spreadsheet.get_cell_value(float(opex_sum), try_use_number=True)
@@ -816,13 +857,40 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
     body["sheets"].append(
         {
             "properties": {
-                "title": F"{BILL_MONTH} Product Line Bills Overview",
+                "title": F"{BILL_YEAR} - {BILL_MONTH} Product Line Bills Overview",
             },
             "data": {
                 "rowData": rows_data
             },
         },
     )
+    for (division, l0, _), dc in departments.items():
+        def _i(l1_, capex, opex):
+            return {"values": [
+                spreadsheet.get_cell_value(division),
+                spreadsheet.get_cell_value(l0),
+                spreadsheet.get_cell_value(l1_),
+                spreadsheet.get_cell_value(capex, try_use_number=True),
+                spreadsheet.get_cell_value(opex, try_use_number=True),
+            ]}
+
+        l1 = dc["l1"]
+        if len(l1) > 1:
+            frac = Decimal(1) / len(l1)
+            for _l1 in l1:
+                dp_rows_data.append(_i(_l1, dc["capex"] * frac, dc["opex"] * frac))
+        else:
+            dp_rows_data.append(_i(l1[0], dc["capex"], dc["opex"]))
+
+    body["sheets"].append(
+        {
+            "properties": {
+                "title": F"{BILL_YEAR} - {BILL_MONTH} Application Overview (Department)",
+            },
+            "data": {
+                "rowData": dp_rows_data,
+            },
+        })
 
     overview_ss = spreadsheet.create_spreadsheet_file(body)
     doc_id = overview_ss["spreadsheetId"]
@@ -843,9 +911,64 @@ def generate_overviews(pl_map, platform_cost, pl_bills):
         merge_req.append(spreadsheet.get_merge_cells_cmd(
             overview_bill_sheet_id, 0, 1, 2 * i + 5, 2 * i + 7))
 
+    depart_overview_bill_sheet_id = overview_ss["sheets"][3]["properties"]["sheetId"]
+    merge_req.append(spreadsheet.get_merge_cells_cmd(
+        depart_overview_bill_sheet_id, 0, 1, 0, 3
+    ))
+    merge_req.append(spreadsheet.get_merge_cells_cmd(
+        depart_overview_bill_sheet_id, 0, 1, 3, 4
+    ))
     spreadsheet.batch_update(doc_id, merge_req)
 
     return doc_id
+
+
+def generate_monthly_overview(overview_sheet, pl_r1_bills, bare_metal_info, seamoney_info):
+    loc = "others"
+
+    for sheet in overview_sheet["sheets"]:
+        properties = sheet["properties"]
+        title = properties["title"]
+
+        rows_data = []
+        # read current content
+        rows = spreadsheet.get_one_sheet_content(PL_DASHBOARD_ID, title)
+        assert rows[0][0] == '' and rows[0][1] == '' and rows[0][
+            2] == '', F"invalid rows: {rows}"
+
+        # TODO, maybe we can update any months? but now we just support update the latest month, haha
+        if rows[0][3] != BILL_MONTH:  # update current columns
+            if len(rows[0]) >= 4:
+                assert rows[0][4] == MONTHS[11 if MONTH_INDEX == 0 else (
+                    MONTH_INDEX - 1)], F"unexpcted MONTH in overview? please check in sheet {title}"
+            # then insert 6 columns
+            spreadsheet.insert_columns(PL_DASHBOARD_ID, title, 3, 6)
+
+        # then update the values between col 3-9
+        headers = [spreadsheet.get_cell_value(
+            BILL_MONTH)] + [spreadsheet.get_cell_value("")] * 5
+        rows_data.append({"values": headers})
+        rows_data.append({"values": [
+            spreadsheet.get_cell_value("Budget"),
+            spreadsheet.get_cell_value("Quota"),
+            spreadsheet.get_cell_value("Avg Usage"),
+            spreadsheet.get_cell_value("Quota Avg Usage"),
+            spreadsheet.get_cell_value("Peak Usage"),
+            spreadsheet.get_cell_value("Peak Usage Ratio"),
+        ]})
+        for row in rows[2:]:
+            pl = row[0]
+            if pl not in pl_r1_bills[loc]:
+                print(
+                    colored(F"unknown product line {pl} in platform {title}", "red"))
+                row_data = [spreadsheet.get_cell_value("")] * 6
+            else:
+                assert title in pl_r1_bills, F"invalid platform {title} in product line {pl}'s bill"
+                pl_bill = pl_r1_bills[pl][title]
+                row_data = [
+                    pl_bill["budget"],
+                    pl_bill[""]
+                ]
 
 
 if __name__ == "__main__":
@@ -865,9 +988,12 @@ if __name__ == "__main__":
         cpo_overall, server_qty, server_unit_price, bare_metal_sheet, seamoney_sheet_us, seamoney_sheet_others)
 
     pl_usage = get_pl_usage(platform_sheets)
-    pl_bill = get_pl_bill(product_line_map, platform_cost, pl_usage,
-                          bare_metal_cost, seamoney_cost)
+    pl_r1_bill = get_pl_r1_bill(product_line_map, platform_cost, pl_usage,
+                                bare_metal_cost, seamoney_cost)
 
     # generate the bill
     product_line_map = get_pl_map(product_line_sheet)
-    generate_overviews(product_line_map, platform_cost, pl_bill)
+    generate_overviews(product_line_map, platform_cost, pl_r1_bill)
+
+    # monthly_overview_sheet = spreadsheet.get_spreadsheet_meta(
+    #    HIDDEN_BY_USER_FIELD)

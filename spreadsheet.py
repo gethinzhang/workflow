@@ -268,3 +268,24 @@ def get_autosize(sheetId):
     )
 
     return merge_req
+
+
+def insert_columns(doc_id, sheet_id, start_col, column_count):
+    service = get_spreadsheet_service()
+
+    merge_req = []
+    merge_req.append({
+        'insertDimension': {
+            'range': {
+                'sheetId': 0,  # Use 0 for the first sheet in the spreadsheet
+                'dimension': 'COLUMNS',
+                'startIndex': start_col,
+                'endIndex': start_col + column_count
+            }
+        }
+    })
+
+    return service.spreadsheets().batchUpdate(
+        spreadsheetId=doc_id,
+        body={"requests": merge_req}
+    ).execute()
