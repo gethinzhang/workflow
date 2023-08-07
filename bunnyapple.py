@@ -9,9 +9,13 @@ import pprint
 
 BILL_YEAR = 2023
 # INPUT A: Change month to bill month, must in MONTHS List
+#BILL_MONTH = "June"
 BILL_MONTH = "May"
 # INPUT B: Input sheets ID
+#BILL_SHEET_ID = "1UBk_y84Ekje_Dlqs3S3aXmzUgfEtt18tr5-XWr3Xntc"
+# MAY BILL
 BILL_SHEET_ID = "1VXbMo0fFjNANF02lxPIqGJxhdeRja7SVs3VtksdKfU8"
+
 # INPUT C: output folder ID
 OUTPUT_FOLDER = "1ixZ-VtoPV2i6-SQ_q0lDsmx_9svrOvH1"
 # OUTPUT_FOLDER = "1eCsCABMYJYw8M68-MKPPKYAD3l8U1C7b"
@@ -22,6 +26,7 @@ MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
           'July', 'August', 'September', 'October', 'November', 'December']
 MONTH_INDEX = MONTHS.index(BILL_MONTH)
 assert MONTH_INDEX != -1, "invalid BILL MONTH!"
+LOG_LEVEL = logging.INFO
 
 # change these vars if needs
 CPO_OFFICE_OVERALL_SHEET_NAME = "CPO Office Bill"
@@ -36,7 +41,11 @@ R1_SHARE_SHEET_NAME = "R1-Share"
 STANDARD_SERVER_CONFIG = "s1_v2"
 NON_LIVE_DC = "DC West"
 NON_BANK_FILTER = "Exclude Bank"
+CATEGORY_FILTER = "APP"
 EI_L0_NAME = "Engineering Infrastructure"
+
+log = logging.getLogger('bunnyapple')
+log.setLevel(level=LOG_LEVEL)
 
 
 HIDDEN_BY_USER_FIELD = 'sheets(data(columnMetadata(hiddenByUser))),sheets(data(rowMetadata(hiddenByUser))),sheets(properties)'
@@ -44,6 +53,9 @@ MERGE_PLATFORMS = {
     "MMDB": "DB",
     "Data Transmission Service": "DB",
     "Video Network": "AZ",
+}
+BAREMETAL_PL_MERGE = {
+    "DEV Efficiency": "engineering_infra.dev_efficiency",
 }
 
 
@@ -62,6 +74,14 @@ def normalize_weights(weights, max_range=10000):
         normalized_array[index] += diff
 
     return normalized_array
+
+
+def _convert_num(num):
+    if len(num) == 0:
+        return Decimal()
+    if num == "#VALUE!" or num.upper() == "NA" or num.upper() == "N/A" or num.upper() == "#REF!":
+        return Decimal()
+    return Decimal(float(num.replace(",", "").replace("M", "")))
 
 
 def get_key_sheets(meta):
@@ -171,7 +191,7 @@ but got {headers} in excel"""
         elif region == "Others":
             region = "others"
         else:
-            print(
+            log.warning(
                 F"there is a empty region in cpo office bill {row}, will ignore")
             continue
 
@@ -190,7 +210,7 @@ but got {headers} in excel"""
     return ret, bank_ret
 
 
-def get_platform_servers(server_qty_sheet, storage_addtional_sheet):
+def get_platform_servers(server_qty_sheet, storage_addtional_sheet, bare_metal_sheet):
     '''
     expect server quantity sheet format is
     title
@@ -238,7 +258,7 @@ def get_platform_servers(server_qty_sheet, storage_addtional_sheet):
             print(F"illegal row in server_quantity sheet {str(row)}")
             exit(-1)
 
-        if category != "APP":  # ignore DI/AI
+        if category != CATEGORY_FILTER:  # ignore DI/AI
             continue
         if BU != NON_BANK_FILTER:  # ignore bank
             continue
@@ -247,13 +267,12 @@ def get_platform_servers(server_qty_sheet, storage_addtional_sheet):
             loc = "us"
         else:
             loc = "others"
-        if idc == NON_LIVE_DC:
+
+        bu = bu.lower()
+        if idc == NON_LIVE_DC and bu == "shopee":
             platform = "nonlive"
-        elif bu == "shopee" or bu == "seamoney":
-            if bu == "seamoney":
-                platform = "seamoney"
-        else:
-            continue  # ignore others, like seamoney etc.
+        if bu == "seamoney":
+            platform = "seamoney"
 
         server_config = server_config.lower()
 
@@ -266,14 +285,56 @@ def get_platform_servers(server_qty_sheet, storage_addtional_sheet):
             ret[loc][platform][server_config] = 0
         ret[loc][platform][server_config] += int(qty)
 
+    # get bare metal productline map
+    bare_metal_map = {"us": {}, "others": {}}
+    bare_metal_rows = spreadsheet.get_one_sheet_content(
+        BILL_SHEET_ID, bare_metal_sheet["properties"]["title"])
+    for bare_metal_row in bare_metal_rows[1:]:
+        try:
+            product_line, location, server_config, qty = bare_metal_row
+            server_config = server_config.lower()
+        except ValueError:
+            print(F"abormal row for baremetal map: {bare_metal_row}")
+            exit(-1)
+        if location.lower() == "us":
+            loc = "us"
+        else:
+            loc = "others"
+        if product_line not in bare_metal_map[loc]:
+            bare_metal_map[loc][product_line] = {}
+        if server_config not in bare_metal_map[loc][product_line]:
+            bare_metal_map[loc][product_line][server_config] = 0
+
+        bare_metal_map[loc][product_line][server_config] += int(qty)
+
+    # we move some platforms server to AZ+bare_metal
+    for loc, platforms_map in ret.items():
+        delete_platforms = []
+        for platform, scs in platforms_map.items():
+            if platform in BAREMETAL_PL_MERGE:
+                # we remove this platform, add add them as a whole to barematal map
+                product_line = BAREMETAL_PL_MERGE[platform]
+                delete_platforms.append(platform)
+                if product_line not in bare_metal_map[loc]:
+                    bare_metal_map[loc][product_line] = {}
+                for sc, qty in scs.items():
+                    if sc not in bare_metal_map[loc][product_line]:
+                        bare_metal_map[loc][product_line][sc] = 0
+                    bare_metal_map[loc][product_line][sc] += qty
+                    if sc not in ret[loc]["AZ"]:
+                        ret[loc]["AZ"][sc] = 0
+                    ret[loc]["AZ"][sc] += qty 
+        for p in delete_platforms:
+            del platforms_map[p]
+
     # validate CPO office's storage platform and split map
     for c, q in ret["others"]["Storage"].items():
         assert ret["others"]["Storage-USS"].get(c, 0) + ret["others"]["Storage-Ceph"].get(c, 0) == q, \
-            F"additional uss, ceph serverconfig {c} mismatch count with CPO Office's bill q: "\
+            F"additional uss, ceph serverconfig {c} mismatch count with CPO Office's bill {q}: "\
             F'additional value is uss: {ret["others"]["Storage-USS"].get(c, 0)}, ceph {ret["others"]["Storage-Ceph"].get(c, 0)}'
 
     del ret["others"]["Storage"]  # splited straoge
-    return ret
+    return ret, bare_metal_map
 
 
 def get_price_unit(pricing_sheet):
@@ -314,11 +375,11 @@ def get_ei_cost_share(r1_share_sheet):
         ret["us"]["capex"] += Decimal(us_capex)
         ret["us"]["opex"] += Decimal(us_opex)
 
-    logging.debug(F"EI shared: {ret}")
+    log.debug(F"EI shared: {ret}")
     return ret
 
 
-def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_sheet, seamoney_sheet_us, seamoney_sheet_others):
+def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_map, seamoney_sheet_us, seamoney_sheet_others):
     '''
     output format is
     platform, server_count, total_capex, total_server_power, projected_server_capex, projected_network_device_capex, 
@@ -366,28 +427,6 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
         "us": {},
         "others": {}
     }
-
-    # get bare metal productline map
-    bare_metal_map = {"us": {}, "others": {}}
-    bare_metal_rows = spreadsheet.get_one_sheet_content(
-        BILL_SHEET_ID, bare_metal_sheet["properties"]["title"])
-    for bare_metal_row in bare_metal_rows[1:]:
-        try:
-            product_line, location, server_config, qty = bare_metal_row
-            server_config = server_config.lower()
-        except ValueError:
-            print(F"abormal row for baremetal map: {bare_metal_row}", "red")
-            exit(-1)
-        if location.lower() == "us":
-            loc = "US"
-        else:
-            loc = "others"
-        if product_line not in bare_metal_map[loc]:
-            bare_metal_map[loc][product_line] = {}
-        if server_config not in bare_metal_map[loc][product_line]:
-            bare_metal_map[loc][product_line][server_config] = 0
-
-        bare_metal_map[loc][product_line][server_config] += int(qty)
 
     for loc, platforms_qty in server_qty.items():
         for platform, server_config_map in platforms_qty.items():
@@ -567,6 +606,12 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
             smr["projected_opex"] = ret[loc]["seamoney"]["projected_opex"] * \
                 smpl_power_frac[smpl] / 10000
 
+    for loc, lc in ret.items():
+        capex_sum = Decimal()
+        opex_sum = Decimal()
+        for platform, pm in lc.items():
+            capex_sum += pm["projected_capex"]
+            opex_sum += pm["projected_opex"]
     return ret, bare_metal_ret, seamoney_ret
 
 
@@ -589,50 +634,67 @@ def get_pl_usage(platform_sheets):
     az, storage is quite special
     az-baremetal need use special format
     '''
-    ret = {}
+    ret = {"us": {}, "others": {}}
+    loc = "others"
     indicators = {}
+
     for platform_name, platform_sheet in platform_sheets.items():
         properties = platform_sheet["properties"]
         title = properties["title"]
 
         rows = spreadsheet.get_one_sheet_content(BILL_SHEET_ID, title)
-        assert platform_name not in ret, F"duplicated {platform_name}?"
-        ret[platform_name] = {}
+        assert platform_name not in ret[loc], F"duplicated {platform_name}?"
+        ret[loc][platform_name] = {}
         indicators[platform_name] = rows[1][1]  # set the indicators
 
-        for row in rows[1:]:
+        if MONTH_INDEX <= 4:  # before MAY, the format is a bit difference
+            rows = rows[1:]
+        else:
+            rows = rows[2:]
+        for row in rows:
             try:
-                product_line, _, _, budget, quota, usage = row
+                if MONTH_INDEX <= 4:
+                    product_line, _, _, budget, quota, usage = row
+                else:
+                    row = row + [''] * max(0, 11 - len(row))
+                    _, _, product_line, _, _, budget, quota, _, _, usage, _ = row
             except ValueError:
                 print(
                     F"illegal row found in platform {platform_name} usage, line is {row}")
                 exit(-1)
+            if product_line == "":
+                continue
+            if product_line == "bank":
+                continue
             try:
-                ret[platform_name][product_line] = {
-                    "budget": float(budget),
-                    "quota": float(quota),
-                    "usage": float(usage),
-                    "maxqu": max(float(quota), float(usage)),
+                budget = _convert_num(budget)
+                quota = _convert_num(quota)
+                usage = _convert_num(usage)
+                ret[loc][platform_name][product_line] = {
+                    "budget": budget,
+                    "quota": quota,
+                    "usage": usage,
+                    "maxqu": max(quota, usage),
                     "percentage": 0.0,
                 }
             except ValueError as e:
                 print(
-                    F"please check the format error in platform {platform_name} usage: {e}")
+                    F"please check the format error in platform {platform_name} usage: {e}, {row}")
                 exit(-1)
 
         qu_weights = []
         pls = []
-        for pl, _ in ret[platform_name].items():
-            qu_weights.append(ret[platform_name][pl]["maxqu"])
+        for pl, _ in ret[loc][platform_name].items():
+            qu_weights.append(ret[loc][platform_name][pl]["maxqu"])
             pls.append(pl)
         qu_weights = normalize_weights(qu_weights, 1000000)
         for i in range(0, len(pls)):
-            ret[platform_name][pls[i]]["percentage"] = qu_weights[i]
+            ret[loc][platform_name][pls[i]]["percentage"] = qu_weights[i]
 
     return ret
 
 
-def get_pl_r1_bill(product_line_map, platform_cost, pl_usage, bare_metal_info, seamoney_info):
+def get_pl_r1_bill(product_line_map, platform_cost, pl_usages, bare_metal_info, seamoney_info):
     ret = {
         "others": {},
         "us": {},
@@ -644,7 +706,7 @@ def get_pl_r1_bill(product_line_map, platform_cost, pl_usage, bare_metal_info, s
     for pl, _ in product_line_map.items():
         ret[loc][pl] = {}
 
-    for platform, product_lines_usages in pl_usage.items():
+    for platform, product_lines_usages in pl_usages[loc].items():
         for pl, _ in product_lines_usages.items():
             assert pl in ret[loc], F"dummy productline {pl} in platform {platform}"
         for pl, _ in bare_metal_info[loc].items():
@@ -652,7 +714,7 @@ def get_pl_r1_bill(product_line_map, platform_cost, pl_usage, bare_metal_info, s
         for pl, _ in seamoney_info[loc].items():
             assert pl in ret[loc], F"dummy productline {pl} in seamoney"
 
-    for platform, product_lines_usages in pl_usage.items():
+    for platform, product_lines_usages in pl_usages[loc].items():
         for pl, pl_usage in product_lines_usages.items():
             assert platform not in ret[loc][pl]
             ret[loc][pl][platform] = pl_usage.copy()
@@ -719,11 +781,11 @@ def get_pl_r2_bill(department_sheets, r1_shares):
                 opex_weights.append(opex)
                 output_rows.append(dp_row.copy())
 
-        logging.debug(F"EI original sum: Capex {capex_sum}, Opex {opex_sum}")
+        log.debug(F"EI original sum: Capex {capex_sum}, Opex {opex_sum}")
         for share in r1_shares[loc]:
             capex_sum += share["capex"]
             opex_sum += share["opex"]
-        logging.debug(F"EI R2 sum: Capex {capex_sum}, Opex {opex_sum}")
+        log.debug(F"EI R2 sum: Capex {capex_sum}, Opex {opex_sum}")
 
         capex_fracs = normalize_weights(capex_weights)
         opex_fracs = normalize_weights(opex_weights)
@@ -783,7 +845,6 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
                 platforms.append(platform)
                 platform_set.add(platform)
     platforms.sort()
-
     # platform costs sheets
     for loc, pcm in platform_cost.items():
         row_data = [
@@ -1016,16 +1077,19 @@ if __name__ == "__main__":
 
             cpo_overall, bank_overall = get_cpo_office_overall_bill(
                 cpo_office_overall_sheet)
-            server_qty = get_platform_servers(
-                server_qty_sheet, additional_storage_sheet)
+            server_qty, bare_metal_map = get_platform_servers(
+                server_qty_sheet, additional_storage_sheet, bare_metal_sheet)
             server_unit_price = get_price_unit(pricing_sheet)
 
             platform_cost, bare_metal_cost, seamoney_cost = calculate_platform_cost(
                 cpo_overall, server_qty,
-                server_unit_price, bare_metal_sheet,
+                server_unit_price, bare_metal_map,
                 seamoney_sheet_us, seamoney_sheet_others)
 
             pl_usage = get_pl_usage(platform_sheets)
+            log.info(
+                F'''platforms don't have usage map: {set(pl_usage["others"].keys()) - set(platform_cost["others"].keys())}''')
+
             pl_r1_bill = get_pl_r1_bill(product_line_map, platform_cost, pl_usage,
                                         bare_metal_cost, seamoney_cost)
 
