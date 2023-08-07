@@ -9,10 +9,10 @@ import pprint
 
 BILL_YEAR = 2023
 # INPUT A: Change month to bill month, must in MONTHS List
-#BILL_MONTH = "June"
+# BILL_MONTH = "June"
 BILL_MONTH = "May"
 # INPUT B: Input sheets ID
-#BILL_SHEET_ID = "1UBk_y84Ekje_Dlqs3S3aXmzUgfEtt18tr5-XWr3Xntc"
+# BILL_SHEET_ID = "1UBk_y84Ekje_Dlqs3S3aXmzUgfEtt18tr5-XWr3Xntc"
 # MAY BILL
 BILL_SHEET_ID = "1VXbMo0fFjNANF02lxPIqGJxhdeRja7SVs3VtksdKfU8"
 
@@ -82,6 +82,20 @@ def _convert_num(num):
     if num == "#VALUE!" or num.upper() == "NA" or num.upper() == "N/A" or num.upper() == "#REF!":
         return Decimal()
     return Decimal(float(num.replace(",", "").replace("M", "")))
+
+
+def _generate_column_sequence(num_columns):
+    columns = []
+    base = ord('A')
+    while num_columns > 0:
+        num_columns, remainder = divmod(num_columns - 1, 26)
+        columns.append(chr(base + remainder))
+    return ''.join(reversed(columns))
+
+
+MAX_COL_NUM = 100
+SPREADSHEET_COLS = [_generate_column_sequence(
+    i) for i in range(1, MAX_COL_NUM + 1)]
 
 
 def get_key_sheets(meta):
@@ -323,7 +337,7 @@ def get_platform_servers(server_qty_sheet, storage_addtional_sheet, bare_metal_s
                     bare_metal_map[loc][product_line][sc] += qty
                     if sc not in ret[loc]["AZ"]:
                         ret[loc]["AZ"][sc] = 0
-                    ret[loc]["AZ"][sc] += qty 
+                    ret[loc]["AZ"][sc] += qty
         for p in delete_platforms:
             del platforms_map[p]
 
@@ -605,6 +619,13 @@ def calculate_platform_cost(cpo_bill, server_qty, server_unit_price, bare_metal_
                 smpl_capex_frac[smpl] / 10000
             smr["projected_opex"] = ret[loc]["seamoney"]["projected_opex"] * \
                 smpl_power_frac[smpl] / 10000
+    for loc, smp in seamoney_ret.items():
+        qty = 0
+        for smpl, q in smp.items():
+            qty += q["server_count"]
+        if qty != ret[loc]["seamoney"]["server_count"]:
+            log.warning(
+                F'unblance seamoney count {qty} with platform count {ret[loc]["seamoney"]["server_count"]}')
 
     for loc, lc in ret.items():
         capex_sum = Decimal()
@@ -827,7 +848,7 @@ generation parts
 '''
 
 
-def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
+def generate_overviews(cpo_bill, pl_map, platform_cost, pl_r1_bills, bank_info):
     body = {
         "properties": {
             "title": F"App Platform Overviews V2 - {BILL_MONTH}"
@@ -845,6 +866,7 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
                 platforms.append(platform)
                 platform_set.add(platform)
     platforms.sort()
+    last_diff_rows = []
     # platform costs sheets
     for loc, pcm in platform_cost.items():
         row_data = [
@@ -887,6 +909,67 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
             ]
             rows_data.append({"values": row_data})
 
+        last_row = len(rows_data)
+        # generate the check point
+        rows_data.append({"values": [
+            spreadsheet.get_cell_value("Total"),
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[1]}2:{SPREADSHEET_COLS[1]}{last_row})", formula=True),
+            spreadsheet.get_cell_value(""),
+            spreadsheet.get_cell_value(""),
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[4]}2:{SPREADSHEET_COLS[4]}{last_row})", formula=True),
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[5]}2:{SPREADSHEET_COLS[5]}{last_row})", formula=True),
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[6]}2:{SPREADSHEET_COLS[6]}{last_row})", formula=True),
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[7]}2:{SPREADSHEET_COLS[7]}{last_row})", formula=True),
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[8]}2:{SPREADSHEET_COLS[8]}{last_row})", formula=True),
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[9]}2:{SPREADSHEET_COLS[9]}{last_row})", formula=True),
+        ]})
+        rows_data.append({"values": [
+            spreadsheet.get_cell_value("CPO Office bill"),
+            spreadsheet.get_cell_value(
+                F"{cpo_bill[loc]['server_count']}", try_use_number=True),
+            spreadsheet.get_cell_value(""),
+            spreadsheet.get_cell_value(""),
+            spreadsheet.get_cell_value(
+                F"{cpo_bill[loc]['server_capex'] + cpo_bill[loc]['network_capex']}", try_use_number=True),
+            spreadsheet.get_cell_value(
+                F"{cpo_bill[loc]['power_opex'] + cpo_bill[loc]['conn_opex']}", try_use_number=True),
+            spreadsheet.get_cell_value(
+                F"{cpo_bill[loc]['server_capex']}", try_use_number=True),
+            spreadsheet.get_cell_value(
+                F"{cpo_bill[loc]['network_capex']}", try_use_number=True),
+            spreadsheet.get_cell_value(
+                F"{cpo_bill[loc]['power_opex']}", try_use_number=True),
+            spreadsheet.get_cell_value(
+                F"{cpo_bill[loc]['conn_opex']}", try_use_number=True),
+        ]})
+        rows_data.append({"values": [
+            spreadsheet.get_cell_value("Diff"),
+            spreadsheet.get_cell_value(
+                F"=ABS(ROUND({SPREADSHEET_COLS[1]}{last_row+2}-{SPREADSHEET_COLS[1]}{last_row+2}, 2))", formula=True),
+            spreadsheet.get_cell_value(""),
+            spreadsheet.get_cell_value(""),
+            spreadsheet.get_cell_value(
+                F"=ABS(ROUND({SPREADSHEET_COLS[4]}{last_row+2}-{SPREADSHEET_COLS[4]}{last_row+2}, 2))", formula=True),
+            spreadsheet.get_cell_value(
+                F"=ABS(ROUND({SPREADSHEET_COLS[5]}{last_row+2}-{SPREADSHEET_COLS[5]}{last_row+2}, 2))", formula=True),
+            spreadsheet.get_cell_value(
+                F"=ABS(ROUND({SPREADSHEET_COLS[6]}{last_row+2}-{SPREADSHEET_COLS[6]}{last_row+2}, 2))", formula=True),
+            spreadsheet.get_cell_value(
+                F"=ABS(ROUND({SPREADSHEET_COLS[7]}{last_row+2}-{SPREADSHEET_COLS[7]}{last_row+2}, 2))", formula=True),
+            spreadsheet.get_cell_value(
+                F"=ABS(ROUND({SPREADSHEET_COLS[8]}{last_row+2}-{SPREADSHEET_COLS[8]}{last_row+2}, 2))", formula=True),
+            spreadsheet.get_cell_value(
+                F"=ABS(ROUND({SPREADSHEET_COLS[9]}{last_row+2}-{SPREADSHEET_COLS[9]}{last_row+2}, 2))", formula=True),
+        ]
+
+        })
         body["sheets"].append(
             {
                 "properties": {
@@ -897,6 +980,7 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
                 },
             },
         )
+        last_diff_rows.append(last_row)
 
     dp_rows_data = []
     rows_data = []
@@ -939,6 +1023,8 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
     rows_data.append({"values": header2})
     dp_rows_data.append({"values": dp_header1})
     dp_rows_data.append({"values": dp_header2})
+    bank_row_index = -1
+    dp_bank_row_index = -1
 
     departments = {}
     for pl, pv in pl_map.items():
@@ -976,6 +1062,7 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
                 bank_info["others"]["server_capex"]
             opex_sum = bank_info["others"]["conn_opex"] + \
                 bank_info["others"]["power_opex"]
+            bank_row_index = len(rows_data) + 1
         departments[(division, l0, l1[0])]["capex"] += capex_sum
         departments[(division, l0, l1[0])]["opex"] += opex_sum
         row_data[3:3] = [
@@ -984,10 +1071,52 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
         ]
         rows_data.append({"values": row_data})
 
+    last_row = len(rows_data)
+    summary_row = [spreadsheet.get_cell_value("")] * 2
+    summary_row.append(spreadsheet.get_cell_value("Total"))
+    for i in range(3, (len(platforms) + 2) * 2, 2):
+        summary_row.append(
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[i]}2:{SPREADSHEET_COLS[i]}{last_row})-{SPREADSHEET_COLS[i]}{bank_row_index}",
+                formula=True)
+        ),
+        summary_row.append(
+            spreadsheet.get_cell_value(
+                F"=SUM({SPREADSHEET_COLS[i+1]}2:{SPREADSHEET_COLS[i+1]}{last_row})-{SPREADSHEET_COLS[i+1]}{bank_row_index}",
+                formula=True))
+    rows_data.append({"values": summary_row})
+    platform_row = [
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value("Platform Bills"),
+        spreadsheet.get_cell_value(
+            F'{cpo_bill["others"]["server_capex"]+cpo_bill["others"]["network_capex"]}', try_use_number=True),
+        spreadsheet.get_cell_value(
+            F'{cpo_bill["others"]["conn_opex"] + cpo_bill["others"]["power_opex"]}', try_use_number=True),
+    ]
+    for platform in platforms:
+        platform_row.append(spreadsheet.get_cell_value(
+            platform_cost[loc][platform]["projected_capex"], try_use_number=True))
+        platform_row.append(spreadsheet.get_cell_value(
+            platform_cost[loc][platform]["projected_opex"], try_use_number=True))
+    rows_data.append({"values": platform_row})
+    last_row = len(rows_data)
+    diff_row = [
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value("Diff Check"),
+    ]
+    for i in range(3, (len(platforms) + 2) * 2+1):
+        diff_row.append(spreadsheet.get_cell_value(
+            F"=ABS(ROUND({SPREADSHEET_COLS[i]}{last_row} - {SPREADSHEET_COLS[i]}{last_row-1}, 2))", formula=True,
+        ))
+    rows_data.append({"values": diff_row})
+    last_diff_rows.append(len(rows_data))
+
     body["sheets"].append(
         {
             "properties": {
-                "title": F"{BILL_YEAR} - {BILL_MONTH} Product Line Bills Overview",
+                "title": F"{BILL_YEAR} - {BILL_MONTH} Product Line Bills Overview - others",
             },
             "data": {
                 "rowData": rows_data
@@ -1012,11 +1141,44 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
                     _i(_l1, dc["capex"] * frac, dc["opex"] * frac))
         else:
             dp_rows_data.append(_i(l1[0], dc["capex"], dc["opex"]))
+        if l0 == "Digital Bank":
+            dp_bank_row_index = len(dp_rows_data)
+
+    assert dp_bank_row_index != -1, F"didn't find Digital bank in all departments {departments.keys()}"
+    dp_rows_data.append({"values": [
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value("Total"),
+        spreadsheet.get_cell_value(
+            F"=ABS(ROUND(SUM({SPREADSHEET_COLS[3]}3:{SPREADSHEET_COLS[3]}{len(dp_rows_data)}) - {SPREADSHEET_COLS[3]}{dp_bank_row_index}, 2))", formula=True),
+        spreadsheet.get_cell_value(
+            F"=ABS(ROUND(SUM({SPREADSHEET_COLS[4]}3:{SPREADSHEET_COLS[4]}{len(dp_rows_data)}) - {SPREADSHEET_COLS[4]}{dp_bank_row_index}, 2))", formula=True),
+    ]})
+    dp_rows_data.append({"values": [
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value("CPO BILL"),
+        spreadsheet.get_cell_value(
+            F'{cpo_bill["others"]["server_capex"]+cpo_bill["others"]["network_capex"]}', try_use_number=True),
+        spreadsheet.get_cell_value(
+            F'{cpo_bill["others"]["conn_opex"] + cpo_bill["others"]["power_opex"]}', try_use_number=True),
+    ]})
+    dp_rows_data.append({"values": [
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value(""),
+        spreadsheet.get_cell_value("DIFF Check"),
+        spreadsheet.get_cell_value(
+            F"=ABS(ROUND({SPREADSHEET_COLS[3]}{len(dp_rows_data)}-{SPREADSHEET_COLS[3]}{len(dp_rows_data)-1}, 2))", formula=True),
+        spreadsheet.get_cell_value(
+            F"=ABS(ROUND({SPREADSHEET_COLS[4]}{len(dp_rows_data)}-{SPREADSHEET_COLS[4]}{len(dp_rows_data)-1}, 2))", formula=True),
+    ]
+    })
+    last_diff_rows.append(len(dp_rows_data))
 
     body["sheets"].append(
         {
             "properties": {
-                "title": F"{BILL_YEAR} - {BILL_MONTH} Application Overview (Department)",
+                "title": F"{BILL_YEAR} - {BILL_MONTH} Application Overview (Department) - others",
             },
             "data": {
                 "rowData": dp_rows_data,
@@ -1032,6 +1194,41 @@ def generate_overviews(pl_map, platform_cost, pl_r1_bills, bank_info):
     for sheet in overview_ss["sheets"]:
         merge_req.append(spreadsheet.get_autosize(
             sheet["properties"]["sheetId"]))
+
+    def _diff_highlight_row(sheetId, row, startCol):
+        return [{
+            "addConditionalFormatRule": {
+                "rule": spreadsheet.get_ge_rule(
+                    sheetId,
+                    "0.01",
+                    condition="NUMBER_GREATER_THAN_EQ",
+                    startRow=row,
+                    endRow=row + 1,
+                    startCol=startCol),
+                "index": 0,
+            }, },
+            {
+            "addConditionalFormatRule": {
+                "rule": spreadsheet.get_ge_rule(
+                    sheetId,
+                    "0.01",
+                    foreground_rgb="006400",
+                    condition="NUMBER_LESS",
+                    startRow=row,
+                    endRow=row + 1,
+                    startCol=startCol),
+                "index": 0,
+            },
+        }]
+
+    merge_req.extend(_diff_highlight_row(
+        overview_ss["sheets"][0]["properties"]["sheetId"], last_diff_rows[0] + 2, 1))
+    merge_req.extend(_diff_highlight_row(
+        overview_ss["sheets"][1]["properties"]["sheetId"], last_diff_rows[1] + 2, 1))
+    merge_req.extend(_diff_highlight_row(
+        overview_ss["sheets"][2]["properties"]["sheetId"], last_diff_rows[2] - 1, 3))
+    merge_req.extend(_diff_highlight_row(
+        overview_ss["sheets"][3]["properties"]["sheetId"], last_diff_rows[3] - 1, 3))
 
     overview_bill_sheet_id = overview_ss["sheets"][2]["properties"]["sheetId"]
     # merge every two columns
@@ -1087,15 +1284,23 @@ if __name__ == "__main__":
                 seamoney_sheet_us, seamoney_sheet_others)
 
             pl_usage = get_pl_usage(platform_sheets)
-            log.info(
-                F'''platforms don't have usage map: {set(pl_usage["others"].keys()) - set(platform_cost["others"].keys())}''')
+            for loc, u in pl_usage.items():
+                usage_keys = set(u.keys())
+                pc_keys = set(platform_cost[loc].keys())
+                usage_keys.update(['nonlive', 'AZ-Baremetal', 'seamoney'])
+                diff1 = usage_keys.difference(pc_keys)
+                diff2 = pc_keys.difference(usage_keys)
+
+                if diff1 or diff2:
+                    log.warning(
+                        F'''Location '{loc}' platforms have difference, diff (usage-pc)={diff1}, (pc-usage)={diff2}''')
 
             pl_r1_bill = get_pl_r1_bill(product_line_map, platform_cost, pl_usage,
                                         bare_metal_cost, seamoney_cost)
 
             # generate the bill
             product_line_map = get_pl_map(product_line_sheet)
-            generate_overviews(product_line_map, platform_cost,
+            generate_overviews(cpo_overall, product_line_map, platform_cost,
                                pl_r1_bill, bank_overall)
         elif mode == "r2":
             r1_di_sheet, _ = get_key_r2_sheets(meta)

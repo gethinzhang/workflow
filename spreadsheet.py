@@ -102,7 +102,7 @@ def get_color_by_code(color_code):
     }
 
 
-def get_cell_value(value, textColor_code="000000", background_code="FFFFFF", try_use_number=False, number_format=None):
+def get_cell_value(value, textColor_code="000000", background_code="FFFFFF", try_use_number=False, number_format=None, formula=False):
     textColor = get_color_by_code(textColor_code)
     backgroundColor = get_color_by_code(background_code)
 
@@ -116,6 +116,8 @@ def get_cell_value(value, textColor_code="000000", background_code="FFFFFF", try
         ret["userEnteredValue"]["numberValue"] = value
         if number_format:
             ret["userEnteredFormat"]["numberFormat"] = number_format
+    elif formula:
+        ret["userEnteredValue"]["formulaValue"] = value
     else:
         ret["userEnteredValue"]["stringValue"] = value
 
@@ -130,26 +132,31 @@ def get_cell_value(value, textColor_code="000000", background_code="FFFFFF", try
 
 
 def get_ge_rule(sheetId, threshold,
-                foreground_rgb="FF0000", background_rgb="FFFFFF"):
+                foreground_rgb="FF0000", background_rgb="FFFFFF",
+                condition="NUMBER_GREATER_THAN_EQ",
+                startRow=0,
+                endRow=1000,
+                startCol=0,
+                endCol=1000):
     foreground = get_color_by_code(foreground_rgb)
     background = get_color_by_code(background_rgb)
     return {
         "ranges": [
             {
                 "sheetId": sheetId,
-                "startRowIndex": 0,
-                "endRowIndex": 1000,
-                "startColumnIndex": 0,
-                "endColumnIndex": 1000,
+                "startRowIndex": startRow,
+                "endRowIndex": endRow,
+                "startColumnIndex": startCol,
+                "endColumnIndex": endCol,
             },
         ],
         "booleanRule": {
             "condition": {
-                "type": "NUMBER_GREATER_THAN_EQ",
+                "type": condition,
                 "values": [
-                        {
-                            "userEnteredValue": threshold,
-                        }
+                    {
+                        "userEnteredValue": threshold,
+                    }
                 ],
             },
             "format": {
